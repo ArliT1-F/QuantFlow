@@ -15,6 +15,8 @@ from app.api.routes import api_router
 from app.services.trading_engine import TradingEngine
 from app.services.data_service import DataService
 from app.services.notification_service import NotificationService
+from app.services.risk_manager import RiskManager
+from app.services.portfolio_manager import PortfolioManager
 
 # Configure logging
 logging.basicConfig(
@@ -46,6 +48,8 @@ async def lifespan(app: FastAPI):
     # Initialize services
     data_service = DataService()
     notification_service = NotificationService()
+    risk_manager = RiskManager()
+    portfolio_manager = PortfolioManager()
     trading_engine = TradingEngine(data_service, notification_service)
     
     # Start background tasks
@@ -81,6 +85,12 @@ app.add_middleware(
 
 # Include API routes
 app.include_router(api_router, prefix="/api/v1")
+
+# Inject services into API routes
+@app.on_event("startup")
+async def inject_services():
+    from app.api.routes import set_services
+    set_services(trading_engine, data_service, portfolio_manager, risk_manager, notification_service)
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
