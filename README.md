@@ -1,4 +1,4 @@
-# 🤖 Automated Stock Trading Bot
+# 🤖 Automated Stock Trading Bot **QuantFlow**
 
 A sophisticated, fully functional automated stock trading bot with real-time data feeds, advanced trading strategies, comprehensive risk management, and a modern web dashboard.
 
@@ -62,8 +62,8 @@ A sophisticated, fully functional automated stock trading bot with real-time dat
 
 ### 1. Clone and Setup
 ```bash
-git clone <repository-url>
-cd automated-stock-trading-bot
+git clone https://github.com/ArliT1-F/QuantFlow
+cd QuantFlow
 ./scripts/setup.sh
 ```
 
