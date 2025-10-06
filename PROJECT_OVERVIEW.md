@@ -273,7 +273,7 @@ Market Data Sources
 ### Quick Setup
 ```bash
 # Clone and setup
-git clone <repository-url>
+git clone `https://github.com/ArliT1-F/QuantFlow`
 cd automated-stock-trading-bot
 ./scripts/setup.sh
 
