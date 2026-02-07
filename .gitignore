@@ -11,5 +11,17 @@ __pycache__/
 venv/
 .env/
 
+# Databases (runtime only)
+*.db
+*.sqlite
+*.sqlite3
+
+# Config (local only)
+local.ini
+.env.ini
+
 # Project-specific
 alembic/
+logs/trading_bot.log
+alembic/versions/001_initial_migration.py
+alembic.ini
