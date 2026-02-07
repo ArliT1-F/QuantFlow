@@ -51,6 +51,8 @@ async def get_trading_status():
         "status": trading_engine.state.value,
         "is_running": trading_engine.is_running(),
         "strategies": list(trading_engine.strategies.keys()),
+        "okx_enabled": settings.OKX_ENABLED,
+        "okx_demo": settings.OKX_DEMO_TRADING,
         "timestamp": datetime.utcnow().isoformat()
     }
 
@@ -277,6 +279,18 @@ async def get_strategy_performance(strategy_name: str):
     except Exception as e:
         logger.error(f"Error getting strategy performance: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# Recent events
+@api_router.get("/trading/events")
+async def get_trading_events():
+    """Get recent trade/signal events"""
+    if not trading_engine:
+        raise HTTPException(status_code=503, detail="Trading engine not available")
+    return {
+        "events": list(trading_engine.recent_events),
+        "count": len(trading_engine.recent_events),
+        "timestamp": datetime.utcnow().isoformat()
+    }
 
 # Backtest Routes
 @api_router.post("/backtest/run")

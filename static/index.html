@@ -7,6 +7,7 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <style>
         .dashboard-header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -139,8 +140,13 @@
                 <div id="dashboard-section" class="content-section">
                     <div class="dashboard-header">
                         <div class="container">
-                            <h1><i class="fas fa-robot"></i> QuantFlow Paper Trading</h1>
-                            <p class="lead">Real-time monitoring and control of your automated trading system</p>
+                            <div class="d-flex align-items-center justify-content-between flex-wrap">
+                                <div>
+                                    <h1><i class="fas fa-robot"></i> QuantFlow Paper Trading</h1>
+                                    <p class="lead mb-0">Real-time monitoring and control of your automated trading system</p>
+                                </div>
+                                <div id="venue-chip" class="badge bg-secondary fs-6 px-3 py-2"></div>
+                            </div>
                         </div>
                     </div>
 
@@ -189,6 +195,32 @@
                                         <div class="metric-value" id="active-positions">0</div>
                                     </div>
                                     <i class="fas fa-briefcase fa-2x text-warning"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <div class="metric-card">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h5 class="mb-0">Recent Signals & Events</h5>
+                                    <span class="text-muted" id="events-count"></span>
+                                </div>
+                                <div class="table-responsive mt-2">
+                                    <table class="table table-sm">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th>Time</th>
+                                                <th>Type</th>
+                                                <th>Symbol</th>
+                                                <th>Strategy</th>
+                                                <th>Message</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="events-table">
+                                            <tr><td colspan="5" class="text-muted text-center">No events yet</td></tr>
+                                        </tbody>
+                                    </table>
                                 </div>
                             </div>
                         </div>
@@ -633,7 +665,8 @@
                     loadTradingStatus(),
                     loadPortfolioOverview(),
                     loadRecentTrades(),
-                    loadMarketData()
+                    loadMarketData(),
+                    loadEvents()
                 ]);
             } catch (error) {
                 console.error('Error refreshing data:', error);
@@ -657,8 +690,45 @@
                     indicator.className = 'status-indicator status-stopped';
                     statusElement.innerHTML = '<span class="status-indicator status-stopped"></span>Stopped';
                 }
+
+                const venueChip = document.getElementById('venue-chip');
+                if (venueChip) {
+                    if (data.okx_enabled) {
+                        venueChip.className = `badge ${data.okx_demo ? 'bg-info' : 'bg-success'} fs-6 px-3 py-2`;
+                        venueChip.textContent = data.okx_demo ? 'OKX Demo' : 'OKX Live';
+                    } else {
+                        venueChip.className = 'badge bg-secondary fs-6 px-3 py-2';
+                        venueChip.textContent = 'Market Data: Yahoo';
+                    }
+                }
             } catch (error) {
                 console.error('Error loading trading status:', error);
+            }
+        }
+
+        async function loadEvents() {
+            try {
+                const response = await fetch('/api/v1/trading/events');
+                const data = await response.json();
+                const events = data.events || [];
+                const tbody = document.getElementById('events-table');
+                const count = document.getElementById('events-count');
+                count.textContent = `${events.length} events`;
+                if (events.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="text-muted text-center">No events yet</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = events.map(ev => `
+                    <tr>
+                        <td>${new Date(ev.timestamp).toLocaleTimeString()}</td>
+                        <td>${ev.type}</td>
+                        <td>${ev.symbol}</td>
+                        <td>${ev.strategy || ''}</td>
+                        <td>${ev.message}</td>
+                    </tr>
+                `).join('');
+            } catch (error) {
+                console.error('Error loading events:', error);
             }
         }
 

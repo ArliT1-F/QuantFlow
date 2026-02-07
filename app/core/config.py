@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     MAX_PORTFOLIO_RISK: float = 0.02  # 2% portfolio risk per trade
     CORRELATION_THRESHOLD: float = 0.7
     MAX_SECTOR_EXPOSURE: float = 0.3  # 30% max exposure to any sector
+    MIN_POSITION_UNITS: float = 0.0005  # smallest tradable size
+    MIN_POSITION_NOTIONAL: float = 10.0  # minimum USD notional per trade
     
     # Notification Settings
     EMAIL_ENABLED: bool = False

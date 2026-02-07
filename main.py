@@ -6,6 +6,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import uvicorn
@@ -119,12 +120,8 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
 async def root():
-    """Root endpoint"""
-    return {
-        "message": "Automated Coin Trading Bot API",
-        "version": "1.0.0",
-        "status": "running"
-    }
+    """Serve dashboard"""
+    return RedirectResponse(url="/static/index.html")
 
 @app.get("/health")
 async def health_check():
@@ -134,6 +131,11 @@ async def health_check():
         "trading_engine": trading_engine.is_running() if trading_engine else False,
         "data_service": data_service.is_running() if data_service else False
     }
+
+@app.get("/favicon.ico")
+async def favicon():
+    """Serve favicon"""
+    return FileResponse("static/favicon.svg")
 
 if __name__ == "__main__":
     uvicorn.run(

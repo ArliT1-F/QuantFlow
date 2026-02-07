@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from enum import Enum
+from collections import deque
 
 from app.core.config import settings
 from app.services.data_service import DataService
@@ -66,6 +67,9 @@ class TradingEngine:
         
         # Trading loop
         self.trading_task: Optional[asyncio.Task] = None
+
+        # Recent events
+        self.recent_events = deque(maxlen=50)
         
         logger.info("Trading engine initialized")
     
@@ -212,8 +216,10 @@ class TradingEngine:
         for signal in signals:
             try:
                 # Risk management check
-                if not await self.risk_manager.validate_signal(signal):
-                    logger.info(f"Signal rejected by risk manager: {signal.symbol} {signal.action}")
+                is_valid, reason = await self.risk_manager.validate_signal(signal)
+                if not is_valid:
+                    logger.info(f"Signal rejected by risk manager: {signal.symbol} {signal.action} ({reason})")
+                    self._add_event("rejected", signal.symbol, signal.strategy, reason)
                     continue
                 
                 # Execute trade
@@ -225,6 +231,7 @@ class TradingEngine:
                     # Send notification
                     await self.notification_service.send_trade_notification(trade_result)
                     await self.risk_manager.record_trade(trade_result)
+                    self._add_event("trade", signal.symbol, signal.strategy, "executed", trade_result)
                 
             except Exception as e:
                 logger.error(f"Error processing signal {signal.symbol}: {e}")
@@ -259,7 +266,7 @@ class TradingEngine:
         except Exception as e:
             logger.error(f"Error executing trade for {signal.symbol}: {e}")
             return None
-
+    
     async def _process_exit_conditions(self, market_data: Dict):
         """Check stop-loss and take-profit for open positions"""
         try:
@@ -297,6 +304,16 @@ class TradingEngine:
                     await self._execute_trade(exit_signal)
         except Exception as e:
             logger.error(f"Error processing exit conditions: {e}")
+
+    def _add_event(self, event_type: str, symbol: str, strategy: str, message: str, details: Optional[Dict] = None):
+        self.recent_events.appendleft({
+            "type": event_type,
+            "symbol": symbol,
+            "strategy": strategy,
+            "message": message,
+            "details": details or {},
+            "timestamp": datetime.utcnow().isoformat()
+        })
     
     async def get_performance_metrics(self) -> Dict[str, Any]:
         """Get trading performance metrics"""

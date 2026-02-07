@@ -44,7 +44,7 @@ class RiskManager:
         
         logger.info("Risk manager initialized")
     
-    async def validate_signal(self, signal: Signal) -> bool:
+    async def validate_signal(self, signal: Signal) -> (bool, str):
         """
         Validate if a trading signal meets risk criteria
         
@@ -57,41 +57,35 @@ class RiskManager:
         try:
             # Check daily trade limit
             if not self._check_daily_trade_limit():
-                logger.info(f"Daily trade limit reached for {signal.symbol}")
-                return False
+                return False, "daily trade limit reached"
             
             # Check daily loss limit
             if not self._check_daily_loss_limit():
-                logger.info(f"Daily loss limit reached for {signal.symbol}")
-                return False
+                return False, "daily loss limit reached"
 
             # Apply position sizing (clamps to limits)
             sized_qty = await self.calculate_position_size(signal)
             if sized_qty <= 0:
-                logger.info(f"Position size too small for {signal.symbol}")
-                return False
+                return False, "position size too small"
             signal.quantity = sized_qty
             
             # Check correlation limits
             if not await self._check_correlation_limit(signal):
-                logger.info(f"Correlation limit exceeded for {signal.symbol}")
-                return False
+                return False, "correlation limit exceeded"
             
             # Check sector exposure limits
             if not await self._check_sector_exposure_limit(signal):
-                logger.info(f"Sector exposure limit exceeded for {signal.symbol}")
-                return False
+                return False, "sector exposure limit exceeded"
             
             # Check volume requirements
             if not self._check_volume_requirements(signal):
-                logger.info(f"Volume requirements not met for {signal.symbol}")
-                return False
+                return False, "volume too low"
             
-            return True
+            return True, ""
             
         except Exception as e:
             logger.error(f"Error validating signal for {signal.symbol}: {e}")
-            return False
+            return False, "validation error"
     
     def _check_daily_trade_limit(self) -> bool:
         """Check if daily trade limit is exceeded"""
@@ -210,7 +204,7 @@ class RiskManager:
             max_risk_amount = portfolio_value * self.risk_limits.max_portfolio_risk
             
             # Calculate position size
-            position_size = int(max_risk_amount / risk_per_share)
+            position_size = max_risk_amount / risk_per_share
             
             # Apply position size limit
             max_position_value = portfolio_value * self.risk_limits.max_position_size
@@ -219,9 +213,13 @@ class RiskManager:
             # Use the smaller of the two limits
             final_position_size = min(position_size, max_units_by_value)
             
-            # If position can't fit within limits, return 0
+            # Ensure minimum tradable size/notional
             if final_position_size <= 0:
                 return 0.0
+            # Cap by max units but also enforce minimum units and notional
+            final_position_size = max(final_position_size, settings.MIN_POSITION_UNITS)
+            if signal.price > 0 and final_position_size * signal.price < settings.MIN_POSITION_NOTIONAL:
+                final_position_size = settings.MIN_POSITION_NOTIONAL / signal.price
             return float(final_position_size)
             
         except Exception as e:
