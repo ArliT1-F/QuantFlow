@@ -11,6 +11,10 @@ from app.services.data_service import DataService
 from app.services.portfolio_manager import PortfolioManager
 from app.services.risk_manager import RiskManager
 from app.services.notification_service import NotificationService
+from app.services.backtest_service import BacktestService
+from app.core.config import settings
+import os
+from collections import deque
 
 logger = logging.getLogger(__name__)
 
@@ -23,16 +27,18 @@ data_service: Optional[DataService] = None
 portfolio_manager: Optional[PortfolioManager] = None
 risk_manager: Optional[RiskManager] = None
 notification_service: Optional[NotificationService] = None
+backtest_service: Optional[BacktestService] = None
 
 def set_services(te: TradingEngine, ds: DataService, pm: PortfolioManager, 
-                rm: RiskManager, ns: NotificationService):
+                rm: RiskManager, ns: NotificationService, bs: Optional[BacktestService] = None):
     """Set global services"""
-    global trading_engine, data_service, portfolio_manager, risk_manager, notification_service
+    global trading_engine, data_service, portfolio_manager, risk_manager, notification_service, backtest_service
     trading_engine = te
     data_service = ds
     portfolio_manager = pm
     risk_manager = rm
     notification_service = ns
+    backtest_service = bs
 
 # Trading Engine Routes
 @api_router.get("/trading/status")
@@ -272,6 +278,33 @@ async def get_strategy_performance(strategy_name: str):
         logger.error(f"Error getting strategy performance: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# Backtest Routes
+@api_router.post("/backtest/run")
+async def run_backtest(payload: Dict[str, Any]):
+    """Run backtest for selected strategies and symbols"""
+    if not backtest_service:
+        raise HTTPException(status_code=503, detail="Backtest service not available")
+    
+    try:
+        symbols = payload.get("symbols")
+        strategies = payload.get("strategies")
+        days = int(payload.get("days", 180))
+        initial_capital = float(payload.get("initial_capital", 10000))
+
+        result = await backtest_service.run_backtest(
+            symbols=symbols,
+            days=days,
+            strategies=strategies,
+            initial_capital=initial_capital
+        )
+        return {
+            "backtest": result,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error running backtest: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Notification Routes
 @api_router.post("/notifications/test")
 async def test_notification():
@@ -310,6 +343,7 @@ async def system_health():
             "portfolio_manager": portfolio_manager is not None,
             "risk_manager": risk_manager is not None,
             "notification_service": notification_service is not None,
+            "backtest_service": backtest_service is not None,
             "timestamp": datetime.utcnow().isoformat()
         }
         
@@ -319,7 +353,8 @@ async def system_health():
             health_status["data_service"],
             health_status["portfolio_manager"],
             health_status["risk_manager"],
-            health_status["notification_service"]
+            health_status["notification_service"],
+            health_status["backtest_service"]
         ])
         
         return health_status
@@ -332,16 +367,11 @@ async def system_health():
 async def get_system_logs(limit: int = 100):
     """Get recent system logs"""
     try:
-        # In a real implementation, this would read from log files
-        # For now, return a placeholder
-        logs = [
-            {
-                "timestamp": datetime.utcnow().isoformat(),
-                "level": "INFO",
-                "message": "System running normally",
-                "source": "trading_engine"
-            }
-        ]
+        logs = []
+        if os.path.exists(settings.LOG_FILE):
+            with open(settings.LOG_FILE, "r") as f:
+                for line in deque(f, maxlen=limit):
+                    logs.append({"message": line.strip()})
         
         return {
             "logs": logs,

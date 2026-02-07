@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Automated Stock Trading Bot Dashboard</title>
+    <title>QuantFlow Paper Trading Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -118,6 +118,9 @@
                     <a class="nav-link" href="#" onclick="showSection('strategies')">
                         <i class="fas fa-cogs"></i> Strategies
                     </a>
+                    <a class="nav-link" href="#" onclick="showSection('backtest')">
+                        <i class="fas fa-flask"></i> Backtest
+                    </a>
                     <a class="nav-link" href="#" onclick="showSection('risk')">
                         <i class="fas fa-shield-alt"></i> Risk Management
                     </a>
@@ -136,7 +139,7 @@
                 <div id="dashboard-section" class="content-section">
                     <div class="dashboard-header">
                         <div class="container">
-                            <h1><i class="fas fa-robot"></i> Automated Stock Trading Bot</h1>
+                            <h1><i class="fas fa-robot"></i> QuantFlow Paper Trading</h1>
                             <p class="lead">Real-time monitoring and control of your automated trading system</p>
                         </div>
                     </div>
@@ -369,7 +372,7 @@
 
                 <!-- Market Data Section -->
                 <div id="market-section" class="content-section" style="display: none;">
-                    <h2><i class="fas fa-chart-bar"></i> Market Data</h2>
+                    <h2><i class="fas fa-chart-bar"></i> Coin Market Data</h2>
                     <div class="row">
                         <div class="col-12">
                             <div class="metric-card">
@@ -384,16 +387,63 @@
                                                 <th>Change %</th>
                                                 <th>Volume</th>
                                                 <th>Market Cap</th>
-                                                <th>P/E Ratio</th>
                                             </tr>
                                         </thead>
                                         <tbody id="market-data-table">
                                             <tr>
-                                                <td colspan="7" class="text-center text-muted">Loading market data...</td>
+                                                <td colspan="6" class="text-center text-muted">Loading market data...</td>
                                             </tr>
                                         </tbody>
                                     </table>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Backtest Section -->
+                <div id="backtest-section" class="content-section" style="display: none;">
+                    <h2><i class="fas fa-flask"></i> Backtest</h2>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="metric-card">
+                                <h5>Run Backtest</h5>
+                                <form id="backtest-form">
+                                    <div class="mb-3">
+                                        <label class="form-label">Symbols (comma-separated)</label>
+                                        <input type="text" class="form-control" id="backtest-symbols" value="BTC-USD,ETH-USD,SOL-USD">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Days</label>
+                                        <input type="number" class="form-control" id="backtest-days" value="180" min="30" max="365">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Initial Capital</label>
+                                        <input type="number" class="form-control" id="backtest-capital" value="10000" min="100">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Strategies</label>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" value="momentum" id="bt-strategy-momentum" checked>
+                                            <label class="form-check-label" for="bt-strategy-momentum">Momentum</label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" value="mean_reversion" id="bt-strategy-mean" checked>
+                                            <label class="form-check-label" for="bt-strategy-mean">Mean Reversion</label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" value="technical_analysis" id="bt-strategy-tech" checked>
+                                            <label class="form-check-label" for="bt-strategy-tech">Technical Analysis</label>
+                                        </div>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary">Run Backtest</button>
+                                </form>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="metric-card">
+                                <h5>Results</h5>
+                                <div id="backtest-results" class="text-muted">Run a backtest to see results.</div>
                             </div>
                         </div>
                     </div>
@@ -463,6 +513,14 @@
             initializeCharts();
             refreshData();
             startAutoRefresh();
+
+            const backtestForm = document.getElementById('backtest-form');
+            if (backtestForm) {
+                backtestForm.addEventListener('submit', function(event) {
+                    event.preventDefault();
+                    runBacktest();
+                });
+            }
         });
 
         // Initialize charts
@@ -562,6 +620,8 @@
                     break;
                 case 'market':
                     loadMarketData();
+                    break;
+                case 'backtest':
                     break;
             }
         }
@@ -664,24 +724,86 @@
                 const tbody = document.getElementById('market-data-table');
                 
                 if (!data.market_data || Object.keys(data.market_data).length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No market data available</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No market data available</td></tr>';
                     return;
                 }
                 
-                tbody.innerHTML = Object.values(data.market_data).map(stock => `
+                tbody.innerHTML = Object.values(data.market_data).map(coin => `
                     <tr>
-                        <td><strong>${stock.symbol}</strong></td>
-                        <td>$${stock.price.toFixed(2)}</td>
-                        <td class="${stock.change >= 0 ? 'positive' : 'negative'}">$${stock.change.toFixed(2)}</td>
-                        <td class="${stock.change_percent >= 0 ? 'positive' : 'negative'}">${stock.change_percent.toFixed(2)}%</td>
-                        <td>${stock.volume.toLocaleString()}</td>
-                        <td>$${(stock.market_cap / 1000000000).toFixed(1)}B</td>
-                        <td>${stock.pe_ratio ? stock.pe_ratio.toFixed(1) : 'N/A'}</td>
+                        <td><strong>${coin.symbol}</strong></td>
+                        <td>$${coin.price.toFixed(2)}</td>
+                        <td class="${coin.change >= 0 ? 'positive' : 'negative'}">$${coin.change.toFixed(2)}</td>
+                        <td class="${coin.change_percent >= 0 ? 'positive' : 'negative'}">${coin.change_percent.toFixed(2)}%</td>
+                        <td>${coin.volume.toLocaleString()}</td>
+                        <td>${coin.market_cap ? `$${(coin.market_cap / 1000000000).toFixed(1)}B` : 'N/A'}</td>
                     </tr>
                 `).join('');
                 
             } catch (error) {
                 console.error('Error loading market data:', error);
+            }
+        }
+
+        // Run backtest
+        async function runBacktest() {
+            try {
+                const symbols = document.getElementById('backtest-symbols').value
+                    .split(',')
+                    .map(s => s.trim())
+                    .filter(Boolean);
+                const days = parseInt(document.getElementById('backtest-days').value, 10);
+                const initialCapital = parseFloat(document.getElementById('backtest-capital').value);
+                const strategies = [];
+                if (document.getElementById('bt-strategy-momentum').checked) strategies.push('momentum');
+                if (document.getElementById('bt-strategy-mean').checked) strategies.push('mean_reversion');
+                if (document.getElementById('bt-strategy-tech').checked) strategies.push('technical_analysis');
+
+                const response = await fetch('/api/v1/backtest/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        symbols,
+                        days,
+                        strategies,
+                        initial_capital: initialCapital
+                    })
+                });
+                const data = await response.json();
+
+                const resultsDiv = document.getElementById('backtest-results');
+                if (!data.backtest || !data.backtest.summary) {
+                    resultsDiv.textContent = 'No results available.';
+                    return;
+                }
+
+                const summary = data.backtest.summary.strategies || {};
+                const rows = Object.entries(summary).map(([name, stats]) => `
+                    <tr>
+                        <td>${name}</td>
+                        <td>${stats.avg_return_percent.toFixed(2)}%</td>
+                        <td>${stats.avg_max_drawdown_percent.toFixed(2)}%</td>
+                        <td>${stats.symbols_tested}</td>
+                    </tr>
+                `).join('');
+
+                resultsDiv.innerHTML = `
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Strategy</th>
+                                    <th>Avg Return</th>
+                                    <th>Avg Drawdown</th>
+                                    <th>Symbols</th>
+                                </tr>
+                            </thead>
+                            <tbody>${rows}</tbody>
+                        </table>
+                    </div>
+                `;
+            } catch (error) {
+                console.error('Error running backtest:', error);
+                showAlert('Error running backtest: ' + error.message, 'danger');
             }
         }
 

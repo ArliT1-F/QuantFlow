@@ -16,7 +16,7 @@ class BaseStrategy(ABC):
 ```
 
 Each strategy returns a `Signal` object containing:
-- `symbol`: Stock symbol
+- `symbol`: Coin symbol (e.g., BTC-USD, ETH-USD)
 - `action`: BUY, SELL, or HOLD
 - `confidence`: Signal strength (0-1)
 - `price`: Current price
@@ -28,7 +28,7 @@ Each strategy returns a `Signal` object containing:
 ## 1. Momentum Strategy
 
 ### Overview
-The Momentum Strategy identifies stocks with strong upward or downward momentum based on price movement and volume analysis.
+The Momentum Strategy identifies coins with strong upward or downward momentum based on price movement and volume analysis.
 
 ### Key Features
 - **Price Momentum**: Analyzes recent price changes
@@ -66,7 +66,7 @@ The Momentum Strategy identifies stocks with strong upward or downward momentum 
 
 ### Best Use Cases
 - Trending markets
-- High-volume stocks
+- High-volume coins
 - Breakout scenarios
 - Strong earnings announcements
 
@@ -91,7 +91,7 @@ The Mean Reversion Strategy identifies overbought/oversold conditions and expect
 {
     "lookback_period": 20,        # Days for mean calculation
     "std_threshold": 2.0,         # Standard deviations from mean
-    "min_volume": 100000,        # Minimum volume requirement
+    "min_volume_ratio": 1.5,     # Current volume vs average volume
     "rsi_oversold": 30,          # RSI oversold level
     "rsi_overbought": 70,        # RSI overbought level
     "bollinger_period": 20,      # Bollinger Bands period
@@ -120,7 +120,7 @@ The Mean Reversion Strategy identifies overbought/oversold conditions and expect
 ### Best Use Cases
 - Range-bound markets
 - High-frequency trading
-- Volatile stocks with mean-reverting behavior
+- Volatile coins with mean-reverting behavior
 - After significant price moves
 
 ### Limitations
@@ -153,7 +153,7 @@ The Technical Analysis Strategy combines multiple technical indicators to genera
     "bb_period": 20,            # Bollinger Bands period
     "bb_std": 2,                # Bollinger Bands standard deviation
     "min_confidence": 0.7,       # Minimum confidence for signal
-    "min_volume": 100000        # Minimum volume requirement
+    "min_volume_ratio": 1.2      # Current volume vs average volume
 }
 ```
 
@@ -180,7 +180,7 @@ The Technical Analysis Strategy combines multiple technical indicators to genera
 
 ### Best Use Cases
 - Medium-term trading
-- Stocks with clear technical patterns
+- Coins with clear technical patterns
 - Markets with good liquidity
 - Trend-following strategies
 
@@ -188,92 +188,6 @@ The Technical Analysis Strategy combines multiple technical indicators to genera
 - Can generate conflicting signals
 - Requires multiple confirmations
 - May be slow to react to sudden changes
-
-## 4. Machine Learning Strategy
-
-### Overview
-The ML Strategy uses machine learning (Random Forest) to predict price movements based on multiple features.
-
-### Key Features
-- **Feature Engineering**: Price, volume, and technical indicators
-- **Random Forest Model**: Ensemble learning for robust predictions
-- **Probability Output**: Provides confidence levels
-- **Adaptive Learning**: Retrains periodically with new data
-
-### Parameters
-```python
-{
-    "lookback_period": 20,        # Days for feature calculation
-    "prediction_horizon": 5,      # Days ahead to predict
-    "min_confidence": 0.65,       # Minimum confidence for signal
-    "min_volume": 100000,        # Minimum volume requirement
-    "model_retrain_days": 30,    # Retrain model every N days
-    "feature_window": 10          # Window for feature calculation
-}
-```
-
-### Feature Engineering
-
-1. **Price Features**:
-   - Price momentum (5-day)
-   - Price vs SMA ratios (5, 10, 20-day)
-   - Volatility (10-day standard deviation)
-   - Price range (5-day high-low)
-
-2. **Volume Features**:
-   - Volume momentum (5-day)
-   - Volume ratio (current vs 20-day average)
-   - Volume trend
-
-3. **Technical Features**:
-   - RSI (14-day)
-   - Market condition score
-
-### Signal Generation Logic
-
-1. **Feature Calculation**:
-   - Generate 10 features from historical data
-   - Normalize features using StandardScaler
-   - Handle missing data appropriately
-
-2. **Model Prediction**:
-   - Use Random Forest classifier
-   - Predict probabilities for SELL (0), HOLD (1), BUY (2)
-   - Select highest probability class
-
-3. **Signal Conditions**:
-   - **BUY**: Predicted class = BUY + confidence > 0.65
-   - **SELL**: Predicted class = SELL + confidence > 0.65
-   - **HOLD**: Predicted class = HOLD or confidence < 0.65
-
-### Model Training
-
-1. **Data Generation**:
-   - Synthetic training data (in production, use real historical data)
-   - 1000 samples with 10 features
-   - Balanced classes with some patterns
-
-2. **Model Configuration**:
-   - Random Forest with 100 estimators
-   - Max depth of 10
-   - Random state for reproducibility
-
-3. **Retraining Schedule**:
-   - Retrain every 30 days
-   - Update with recent market data
-   - Save model and scaler
-
-### Best Use Cases
-- Complex market conditions
-- Multi-factor analysis
-- Adaptive to changing market dynamics
-- Quantitative trading approaches
-
-### Limitations
-- Requires sufficient historical data
-- May overfit to training data
-- Computational complexity
-- Black box nature (hard to interpret)
 
 ## Strategy Performance Monitoring
 
@@ -330,8 +244,7 @@ Edit `app/core/config.py`:
 ENABLED_STRATEGIES = [
     "momentum",           # Enable momentum strategy
     "mean_reversion",     # Enable mean reversion strategy
-    "technical_analysis", # Enable technical analysis strategy
-    "ml_strategy"         # Enable ML strategy
+    "technical_analysis"  # Enable technical analysis strategy
 ]
 ```
 

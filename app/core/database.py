@@ -11,12 +11,18 @@ from typing import AsyncGenerator
 from app.core.config import settings
 
 # Create database engine
-engine = create_engine(
-    settings.DATABASE_URL,
-    poolclass=StaticPool,
-    connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {},
-    echo=False
-)
+if "sqlite" in settings.DATABASE_URL:
+    engine = create_engine(
+        settings.DATABASE_URL,
+        poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
+        echo=False
+    )
+else:
+    engine = create_engine(
+        settings.DATABASE_URL,
+        echo=False
+    )
 
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

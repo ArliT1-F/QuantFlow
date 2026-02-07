@@ -13,7 +13,7 @@ class Trade(Base):
     id = Column(Integer, primary_key=True, index=True)
     symbol = Column(String(10), nullable=False, index=True)
     side = Column(String(4), nullable=False)  # BUY or SELL
-    quantity = Column(Integer, nullable=False)
+    quantity = Column(Float, nullable=False)
     price = Column(Float, nullable=False)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
     strategy = Column(String(50), nullable=False)
@@ -34,7 +34,7 @@ class Position(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     symbol = Column(String(10), nullable=False, index=True)
-    quantity = Column(Integer, nullable=False)
+    quantity = Column(Float, nullable=False)
     average_price = Column(Float, nullable=False)
     current_price = Column(Float, nullable=False)
     unrealized_pnl = Column(Float, default=0.0)

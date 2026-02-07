@@ -14,7 +14,7 @@ class Signal:
     action: str  # BUY, SELL, HOLD
     confidence: float  # 0-1
     price: float
-    quantity: Optional[int] = None
+    quantity: Optional[float] = None
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
     metadata: Dict[str, Any] = None
@@ -41,7 +41,7 @@ class BaseStrategy(ABC):
         Generate a trading signal for the given symbol and data
         
         Args:
-            symbol: Stock symbol
+            symbol: Coin symbol
             data: Market data for the symbol
             
         Returns:

@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# Automated Stock Trading Bot Run Script
+# Automated Coin Trading Bot Run Script
 # This script starts the trading bot
 
 set -e
 
-echo "🤖 Starting Automated Stock Trading Bot..."
+echo "🤖 Starting Automated Coin Trading Bot..."
 
 # Check if virtual environment exists
 if [ ! -d "venv" ]; then

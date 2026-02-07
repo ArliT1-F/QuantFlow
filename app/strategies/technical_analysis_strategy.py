@@ -1,10 +1,9 @@
 """
 Technical analysis strategy based on multiple technical indicators
 """
-import pandas as pd
 import numpy as np
 from typing import Dict, Optional, Any, List
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from app.strategies.base_strategy import BaseStrategy, Signal
 
@@ -17,15 +16,15 @@ class TechnicalAnalysisStrategy(BaseStrategy):
             "sma_short": 10,  # Short-term SMA period
             "sma_long": 30,   # Long-term SMA period
             "rsi_period": 14,  # RSI period
-            "rsi_oversold": 30,  # RSI oversold level
-            "rsi_overbought": 70,  # RSI overbought level
+            "rsi_oversold": 35,  # RSI oversold level
+            "rsi_overbought": 65,  # RSI overbought level
             "macd_fast": 12,   # MACD fast period
             "macd_slow": 26,   # MACD slow period
             "macd_signal": 9,  # MACD signal period
             "bb_period": 20,   # Bollinger Bands period
             "bb_std": 2,       # Bollinger Bands standard deviation
-            "min_confidence": 0.7,  # Minimum confidence for signal
-            "min_volume": 100000  # Minimum volume requirement
+            "min_confidence": 0.5,  # Minimum confidence for signal
+            "min_volume_ratio": 1.0  # Volume vs average volume
         }
     
     async def generate_signal(self, symbol: str, data: Dict[str, Any]) -> Optional[Signal]:
@@ -33,7 +32,7 @@ class TechnicalAnalysisStrategy(BaseStrategy):
         Generate technical analysis trading signal
         
         Args:
-            symbol: Stock symbol
+            symbol: Coin symbol
             data: Market data for the symbol
             
         Returns:
@@ -61,41 +60,42 @@ class TechnicalAnalysisStrategy(BaseStrategy):
     async def _calculate_technical_indicators(self, symbol: str, data: Dict[str, Any]) -> Optional[Dict[str, float]]:
         """Calculate technical indicators for the symbol"""
         try:
-            price = data.get("price", 0)
-            volume = data.get("volume", 0)
-            high = data.get("high", price)
-            low = data.get("low", price)
-            
+            history = data.get("history", [])
+            if not history:
+                return None
+
+            closes = [h["close"] for h in history]
+            volumes = [h["volume"] for h in history]
+            price = closes[-1]
+            volume = volumes[-1]
+
             if price <= 0 or volume <= 0:
                 return None
-            
-            # Simulate historical data for indicator calculation
-            historical_data = self._simulate_historical_data(price, high, low, volume, 50)
-            
-            if len(historical_data) < max(self.parameters["sma_long"], self.parameters["bb_period"]):
+
+            if len(closes) < max(self.parameters["sma_long"], self.parameters["bb_period"]):
                 return None
-            
+
             indicators = {}
-            
+
             # Moving Averages
-            indicators["sma_short"] = self._calculate_sma(historical_data["close"], self.parameters["sma_short"])
-            indicators["sma_long"] = self._calculate_sma(historical_data["close"], self.parameters["sma_long"])
-            
+            indicators["sma_short"] = self._calculate_sma(closes, self.parameters["sma_short"])
+            indicators["sma_long"] = self._calculate_sma(closes, self.parameters["sma_long"])
+
             # RSI
-            indicators["rsi"] = self._calculate_rsi(historical_data["close"], self.parameters["rsi_period"])
-            
+            indicators["rsi"] = self._calculate_rsi(closes, self.parameters["rsi_period"])
+
             # MACD
-            macd_data = self._calculate_macd(historical_data["close"])
+            macd_data = self._calculate_macd(closes)
             indicators.update(macd_data)
-            
+
             # Bollinger Bands
-            bb_data = self._calculate_bollinger_bands(historical_data["close"])
+            bb_data = self._calculate_bollinger_bands(closes)
             indicators.update(bb_data)
-            
+
             # Volume indicators
-            indicators["volume_sma"] = self._calculate_sma(historical_data["volume"], 20)
+            indicators["volume_sma"] = self._calculate_sma(volumes, 20)
             indicators["volume_ratio"] = volume / indicators["volume_sma"] if indicators["volume_sma"] > 0 else 1
-            
+
             # Price position indicators
             indicators["price_vs_sma_short"] = (price - indicators["sma_short"]) / indicators["sma_short"]
             indicators["price_vs_sma_long"] = (price - indicators["sma_long"]) / indicators["sma_long"]
@@ -106,39 +106,6 @@ class TechnicalAnalysisStrategy(BaseStrategy):
         except Exception as e:
             print(f"Error calculating technical indicators for {symbol}: {e}")
             return None
-    
-    def _simulate_historical_data(self, current_price: float, current_high: float, 
-                                 current_low: float, current_volume: int, days: int) -> Dict[str, List[float]]:
-        """Simulate historical data for indicator calculation"""
-        np.random.seed(42)  # For reproducible results
-        
-        # Generate price data with some trend and volatility
-        daily_returns = np.random.normal(0.001, 0.02, days)  # Slight upward bias, 2% volatility
-        prices = [current_price]
-        highs = [current_high]
-        lows = [current_low]
-        volumes = [current_volume]
-        
-        for i in range(days - 1):
-            # Generate next price
-            new_price = prices[-1] * (1 + daily_returns[i])
-            prices.append(new_price)
-            
-            # Generate high/low (simplified)
-            daily_range = abs(daily_returns[i]) * prices[-1]
-            highs.append(new_price + daily_range * 0.3)
-            lows.append(new_price - daily_range * 0.3)
-            
-            # Generate volume (with some correlation to price movement)
-            volume_change = 1 + np.random.normal(0, 0.3)
-            volumes.append(max(10000, int(volumes[-1] * volume_change)))
-        
-        return {
-            "close": prices,
-            "high": highs,
-            "low": lows,
-            "volume": volumes
-        }
     
     def _calculate_sma(self, prices: List[float], period: int) -> float:
         """Calculate Simple Moving Average"""
@@ -237,7 +204,7 @@ class TechnicalAnalysisStrategy(BaseStrategy):
             volume = data.get("volume", 0)
             
             # Check volume requirement
-            if volume < self.parameters["min_volume"]:
+            if indicators["volume_ratio"] < self.parameters["min_volume_ratio"]:
                 return None
             
             # Analyze indicators for signals

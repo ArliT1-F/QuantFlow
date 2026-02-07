@@ -45,7 +45,7 @@ GET /api/v1/trading/status
 {
   "status": "running",
   "is_running": true,
-  "strategies": ["momentum", "mean_reversion", "technical_analysis", "ml_strategy"],
+  "strategies": ["momentum", "mean_reversion", "technical_analysis"],
   "timestamp": "2024-01-01T00:00:00Z"
 }
 ```
@@ -111,7 +111,7 @@ GET /api/v1/portfolio/positions
 {
   "positions": [
     {
-      "symbol": "AAPL",
+      "symbol": "BTC-USD",
       "quantity": 10,
       "average_price": 150.00,
       "current_price": 155.00,
@@ -143,7 +143,7 @@ GET /api/v1/portfolio/trades?limit=100
   "trades": [
     {
       "id": 1,
-      "symbol": "AAPL",
+      "symbol": "BTC-USD",
       "side": "BUY",
       "quantity": 10,
       "price": 150.00,
@@ -171,8 +171,8 @@ GET /api/v1/market/data
 ```json
 {
   "market_data": {
-    "AAPL": {
-      "symbol": "AAPL",
+    "BTC-USD": {
+      "symbol": "BTC-USD",
       "price": 155.00,
       "open": 150.00,
       "high": 156.00,
@@ -187,7 +187,7 @@ GET /api/v1/market/data
       "timestamp": "2024-01-01T00:00:00Z"
     }
   },
-  "symbols": ["AAPL"],
+  "symbols": ["BTC-USD"],
   "timestamp": "2024-01-01T00:00:00Z"
 }
 ```
@@ -198,14 +198,14 @@ GET /api/v1/market/data/{symbol}
 ```
 
 **Parameters:**
-- `symbol`: Stock symbol (e.g., AAPL, MSFT)
+- `symbol`: Coin symbol (e.g., BTC-USD, ETH-USD)
 
 **Response:**
 ```json
 {
-  "symbol": "AAPL",
+  "symbol": "BTC-USD",
   "data": {
-    "symbol": "AAPL",
+    "symbol": "BTC-USD",
     "price": 155.00,
     "open": 150.00,
     "high": 156.00,
@@ -229,13 +229,13 @@ GET /api/v1/market/historical/{symbol}?period=1y
 ```
 
 **Parameters:**
-- `symbol`: Stock symbol
+- `symbol`: Coin symbol
 - `period` (optional): Time period (1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max)
 
 **Response:**
 ```json
 {
-  "symbol": "AAPL",
+  "symbol": "BTC-USD",
   "period": "1y",
   "data": [
     {
@@ -274,13 +274,13 @@ GET /api/v1/risk/metrics
     "max_position_size": 0.1,
     "max_portfolio_risk": 0.02,
     "position_correlations": {
-      "AAPL": {
-        "MSFT": 0.3,
-        "GOOGL": 0.2
+      "BTC-USD": {
+        "ETH-USD": 0.3,
+        "SOL-USD": 0.2
       }
     },
     "sector_exposures": {
-      "AAPL": 0.05
+      "BTC-USD": 0.05
     },
     "last_reset_date": "2024-01-01"
   },
@@ -325,7 +325,7 @@ GET /api/v1/strategies
       "class_name": "MomentumStrategy",
       "parameters": {
         "lookback_period": 20,
-        "momentum_threshold": 0.05,
+        "momentum_threshold": 0.03,
         "volume_threshold": 1.5,
         "rsi_oversold": 30,
         "rsi_overbought": 70,
@@ -353,7 +353,7 @@ GET /api/v1/strategies/{strategy_name}/performance
 ```
 
 **Parameters:**
-- `strategy_name`: Name of the strategy (momentum, mean_reversion, technical_analysis, ml_strategy)
+- `strategy_name`: Name of the strategy (momentum, mean_reversion, technical_analysis)
 
 **Response:**
 ```json
@@ -369,6 +369,52 @@ GET /api/v1/strategies/{strategy_name}/performance
     "max_drawdown": 0.05
   },
   "timestamp": "2024-01-01T00:00:00Z"
+}
+```
+
+### Backtesting
+
+#### Run Backtest
+```http
+POST /api/v1/backtest/run
+```
+
+**Request Body:**
+```json
+{
+  "symbols": ["BTC-USD", "ETH-USD"],
+  "days": 180,
+  "strategies": ["momentum", "mean_reversion", "technical_analysis"],
+  "initial_capital": 10000
+}
+```
+
+**Response:**
+```json
+{
+  "backtest": {
+    "summary": {
+      "strategies": {
+        "momentum": {
+          "avg_return_percent": 4.2,
+          "avg_max_drawdown_percent": 8.1,
+          "symbols_tested": 2
+        }
+      }
+    },
+    "strategies": {
+      "momentum": {
+        "BTC-USD": {
+          "total_return_percent": 5.1,
+          "max_drawdown_percent": 7.8,
+          "num_trades": 12,
+          "win_rate": 50.0,
+          "ending_value": 10510.0
+        }
+      }
+    }
+  },
+  "timestamp": "2026-02-07T12:00:00Z"
 }
 ```
 
@@ -533,7 +579,7 @@ curl http://localhost:8000/api/v1/portfolio/overview
 curl -X POST http://localhost:8000/api/v1/trading/start
 
 # Get market data for specific symbol
-curl http://localhost:8000/api/v1/market/data/AAPL
+curl http://localhost:8000/api/v1/market/data/BTC-USD
 
 # Send test notification
 curl -X POST http://localhost:8000/api/v1/notifications/test

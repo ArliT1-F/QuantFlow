@@ -7,11 +7,10 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 import yfinance as yf
 import pandas as pd
-import numpy as np
 from alpha_vantage.timeseries import TimeSeries
-from alpha_vantage.fundamentaldata import FundamentalData
 
 from app.core.config import settings
+from app.services.okx_client import OkxClient
 
 logger = logging.getLogger(__name__)
 
@@ -20,20 +19,32 @@ class DataService:
     
     def __init__(self):
         self.alpha_vantage = None
-        self.fundamental_data = None
         self.cache = {}
         self.cache_expiry = {}
         self.is_running_flag = False
         self.data_task = None
+        self.okx_client = None
         
         # Initialize Alpha Vantage if API key is available
-        if settings.ALPHA_VANTAGE_API_KEY:
+        if settings.ALPHA_VANTAGE_ENABLED and settings.ALPHA_VANTAGE_API_KEY:
             try:
                 self.alpha_vantage = TimeSeries(key=settings.ALPHA_VANTAGE_API_KEY)
-                self.fundamental_data = FundamentalData(key=settings.ALPHA_VANTAGE_API_KEY)
                 logger.info("Alpha Vantage initialized successfully")
             except Exception as e:
                 logger.error(f"Failed to initialize Alpha Vantage: {e}")
+
+        if settings.OKX_ENABLED and settings.OKX_MARKET_DATA_ENABLED:
+            try:
+                self.okx_client = OkxClient(
+                    api_key=settings.OKX_API_KEY,
+                    secret_key=settings.OKX_SECRET_KEY,
+                    passphrase=settings.OKX_PASSPHRASE,
+                    base_url=settings.OKX_BASE_URL,
+                    demo=settings.OKX_DEMO_TRADING
+                )
+                logger.info("OKX client initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize OKX client: {e}")
         
         logger.info("Data service initialized")
     
@@ -80,50 +91,119 @@ class DataService:
             except Exception as e:
                 logger.error(f"Error updating data for {symbol}: {e}")
     
-    async def get_latest_data(self) -> Dict[str, Any]:
+    async def get_latest_data(self, include_history: bool = False) -> Dict[str, Any]:
         """Get latest data for all symbols"""
         data = {}
         for symbol in settings.DEFAULT_SYMBOLS:
-            symbol_data = await self.get_latest_data_for_symbol(symbol)
+            symbol_data = await self.get_latest_data_for_symbol(symbol, include_history=include_history)
             if symbol_data:
                 data[symbol] = symbol_data
         return data
     
-    async def get_latest_data_for_symbol(self, symbol: str) -> Optional[Dict[str, Any]]:
+    async def get_latest_data_for_symbol(self, symbol: str, include_history: bool = False) -> Optional[Dict[str, Any]]:
         """Get latest data for a specific symbol"""
         # Check cache first
-        if self._is_cache_valid(symbol):
+        if self._is_cache_valid(symbol) and not include_history:
             return self.cache.get(symbol)
         
         try:
+            if self.okx_client:
+                okx_data = await self._fetch_okx_data(symbol, include_history=include_history)
+                if okx_data:
+                    if "history" in okx_data:
+                        cache_copy = okx_data.copy()
+                        cache_copy.pop("history", None)
+                        self._cache_data(symbol, cache_copy)
+                    else:
+                        self._cache_data(symbol, okx_data)
+                    return okx_data
+                # If OKX is enabled for market data but returns nothing, do not fall back
+                return None
+
             # Fetch from Yahoo Finance (primary source)
-            yahoo_data = await self._fetch_yahoo_data(symbol)
+            yahoo_data = None
+            if settings.YAHOO_FINANCE_ENABLED:
+                yahoo_data = await self._fetch_yahoo_data(symbol, include_history=include_history)
             
             # Fetch from Alpha Vantage if available (secondary source)
             alpha_data = None
-            if self.alpha_vantage:
+            if self.alpha_vantage and "-USD" not in symbol.upper():
                 alpha_data = await self._fetch_alpha_vantage_data(symbol)
             
             # Combine and process data
             combined_data = self._combine_data_sources(yahoo_data, alpha_data)
             
-            # Cache the data
-            self._cache_data(symbol, combined_data)
+            # Cache the data (without history to keep cache light)
+            if combined_data and "history" in combined_data:
+                cache_copy = combined_data.copy()
+                cache_copy.pop("history", None)
+                self._cache_data(symbol, cache_copy)
+            else:
+                self._cache_data(symbol, combined_data)
             
             return combined_data
             
         except Exception as e:
             logger.error(f"Error fetching data for {symbol}: {e}")
             return self.cache.get(symbol)  # Return cached data if available
+
+    def _okx_inst_id(self, symbol: str) -> str:
+        if "-" in symbol:
+            base, quote = symbol.split("-", 1)
+            if quote.upper() == "USD":
+                quote = settings.OKX_QUOTE_CCY
+            return f"{base.upper()}-{quote.upper()}"
+        return f"{symbol.upper()}-{settings.OKX_QUOTE_CCY}"
+
+    async def _fetch_okx_data(self, symbol: str, include_history: bool = False) -> Optional[Dict[str, Any]]:
+        """Fetch data from OKX market API"""
+        try:
+            inst_id = self._okx_inst_id(symbol)
+            ticker = self.okx_client.get_ticker(inst_id)
+            if not ticker:
+                return None
+
+            last = float(ticker.get("last", 0))
+            open24h = float(ticker.get("open24h", 0))
+            high24h = float(ticker.get("high24h", 0))
+            low24h = float(ticker.get("low24h", 0))
+            vol24h = float(ticker.get("vol24h", 0))
+            change = last - open24h if open24h else 0.0
+            change_percent = (change / open24h * 100) if open24h else 0.0
+
+            data = {
+                "symbol": symbol,
+                "price": last,
+                "open": open24h,
+                "high": high24h,
+                "low": low24h,
+                "volume": vol24h,
+                "change": change,
+                "change_percent": change_percent,
+                "timestamp": datetime.utcnow()
+            }
+
+            if include_history:
+                candles = self.okx_client.get_candles(inst_id, bar="1D", limit=90)
+                if candles:
+                    data["history"] = candles
+
+            return data
+        except Exception as e:
+            logger.error(f"Error fetching OKX data for {symbol}: {e}")
+            return None
     
-    async def _fetch_yahoo_data(self, symbol: str) -> Optional[Dict[str, Any]]:
+    async def _fetch_yahoo_data(self, symbol: str, include_history: bool = False) -> Optional[Dict[str, Any]]:
         """Fetch data from Yahoo Finance"""
         try:
-            ticker = yf.Ticker(symbol)
-            
-            # Get current price and basic info
-            info = ticker.info
-            hist = ticker.history(period="5d", interval="1d")
+            # Prefer lightweight history download to avoid quoteSummary rate limits
+            hist = yf.download(
+                tickers=symbol,
+                period="90d",
+                interval="1d",
+                progress=False,
+                threads=False
+            )
             
             if hist.empty:
                 return None
@@ -139,12 +219,21 @@ class DataService:
                 "volume": int(latest["Volume"]),
                 "change": float(latest["Close"] - latest["Open"]),
                 "change_percent": float((latest["Close"] - latest["Open"]) / latest["Open"] * 100),
-                "market_cap": info.get("marketCap", 0),
-                "pe_ratio": info.get("trailingPE", 0),
-                "dividend_yield": info.get("dividendYield", 0),
-                "beta": info.get("beta", 0),
                 "timestamp": datetime.utcnow()
             }
+
+            if include_history:
+                history = []
+                for idx, row in hist.iterrows():
+                    history.append({
+                        "timestamp": idx.isoformat(),
+                        "open": float(row["Open"]),
+                        "high": float(row["High"]),
+                        "low": float(row["Low"]),
+                        "close": float(row["Close"]),
+                        "volume": float(row["Volume"])
+                    })
+                data["history"] = history
             
             return data
             
@@ -220,6 +309,23 @@ class DataService:
     async def get_historical_data(self, symbol: str, period: str = "1y") -> Optional[pd.DataFrame]:
         """Get historical data for backtesting"""
         try:
+            if self.okx_client:
+                inst_id = self._okx_inst_id(symbol)
+                candles = self.okx_client.get_candles(inst_id, bar="1D", limit=365)
+                if not candles:
+                    return None
+                df = pd.DataFrame(candles)
+                df["timestamp"] = pd.to_datetime(df["timestamp"])
+                df = df.set_index("timestamp")
+                df = df.rename(columns={
+                    "open": "Open",
+                    "high": "High",
+                    "low": "Low",
+                    "close": "Close",
+                    "volume": "Volume"
+                })
+                return self._add_technical_indicators(df)
+
             ticker = yf.Ticker(symbol)
             hist = ticker.history(period=period)
             
@@ -275,32 +381,3 @@ class DataService:
             logger.error(f"Error adding technical indicators: {e}")
             return df
     
-    async def get_fundamental_data(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """Get fundamental data for a symbol"""
-        try:
-            ticker = yf.Ticker(symbol)
-            info = ticker.info
-            
-            fundamental_data = {
-                "symbol": symbol,
-                "market_cap": info.get("marketCap", 0),
-                "pe_ratio": info.get("trailingPE", 0),
-                "forward_pe": info.get("forwardPE", 0),
-                "peg_ratio": info.get("pegRatio", 0),
-                "price_to_book": info.get("priceToBook", 0),
-                "price_to_sales": info.get("priceToSalesTrailing12Months", 0),
-                "dividend_yield": info.get("dividendYield", 0),
-                "beta": info.get("beta", 0),
-                "debt_to_equity": info.get("debtToEquity", 0),
-                "return_on_equity": info.get("returnOnEquity", 0),
-                "revenue_growth": info.get("revenueGrowth", 0),
-                "earnings_growth": info.get("earningsGrowth", 0),
-                "sector": info.get("sector", ""),
-                "industry": info.get("industry", "")
-            }
-            
-            return fundamental_data
-            
-        except Exception as e:
-            logger.error(f"Error fetching fundamental data for {symbol}: {e}")
-            return None

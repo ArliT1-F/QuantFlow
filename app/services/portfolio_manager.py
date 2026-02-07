@@ -3,12 +3,10 @@ Portfolio management system for tracking positions and performance
 """
 import logging
 from typing import Dict, List, Optional, Any
-from datetime import datetime, timedelta
-import pandas as pd
-import numpy as np
-from sqlalchemy.orm import Session
-
+from datetime import datetime
 from app.core.database import SessionLocal
+from app.core.config import settings
+from app.services.okx_client import OkxClient
 from app.models.portfolio import Portfolio, PortfolioSnapshot
 from app.models.trade import Trade, Position
 
@@ -17,18 +15,24 @@ logger = logging.getLogger(__name__)
 class PortfolioManager:
     """Portfolio management system for tracking positions and performance"""
     
-    def __init__(self):
+    def __init__(self, okx_client: Optional[OkxClient] = None):
         self.portfolio_id = None
         self.cash_balance = 0.0
         self.total_value = 0.0
+        self.initial_capital = settings.DEFAULT_CAPITAL
+        self.total_realized_pnl = 0.0
         self.positions = {}
         self.trade_history = []
         self.performance_metrics = {}
+        self.initialized = False
+        self.okx_client = okx_client
         
         logger.info("Portfolio manager initialized")
     
     async def initialize(self):
         """Initialize portfolio manager"""
+        if self.initialized:
+            return
         try:
             # Create or get default portfolio
             await self._create_or_get_portfolio()
@@ -37,6 +41,7 @@ class PortfolioManager:
             await self._load_positions()
             
             logger.info("Portfolio manager initialized successfully")
+            self.initialized = True
             
         except Exception as e:
             logger.error(f"Error initializing portfolio manager: {e}")
@@ -54,8 +59,8 @@ class PortfolioManager:
                 # Create new portfolio
                 portfolio = Portfolio(
                     name="Default Trading Portfolio",
-                    total_value=10000.0,  # Default starting capital
-                    cash_balance=10000.0,
+                    total_value=settings.DEFAULT_CAPITAL,
+                    cash_balance=settings.DEFAULT_CAPITAL,
                     invested_amount=0.0,
                     total_pnl=0.0,
                     total_pnl_percentage=0.0
@@ -72,6 +77,8 @@ class PortfolioManager:
             self.portfolio_id = portfolio.id
             self.cash_balance = portfolio.cash_balance
             self.total_value = portfolio.total_value
+            self.total_realized_pnl = portfolio.total_pnl
+            self.initial_capital = portfolio.total_value if portfolio.total_value > 0 else settings.DEFAULT_CAPITAL
             
             db.close()
             
@@ -120,7 +127,7 @@ class PortfolioManager:
         try:
             symbol = trade_data["symbol"]
             side = trade_data["side"]
-            quantity = trade_data["quantity"]
+            quantity = float(trade_data["quantity"])
             price = trade_data["price"]
             strategy = trade_data.get("strategy", "")
             stop_loss = trade_data.get("stop_loss")
@@ -134,7 +141,18 @@ class PortfolioManager:
                 logger.warning(f"Insufficient cash for {symbol} trade: {trade_value} > {self.cash_balance}")
                 return None
             
-            # Execute the trade
+            # Prevent selling without a position (no shorting)
+            if side == "SELL":
+                if symbol not in self.positions or self.positions[symbol]["quantity"] <= 0:
+                    logger.warning(f"No position to sell for {symbol}")
+                    return None
+                # Cap sell quantity to available position
+                if quantity > self.positions[symbol]["quantity"]:
+                    trade_data["quantity"] = self.positions[symbol]["quantity"]
+                    quantity = trade_data["quantity"]
+                    trade_value = quantity * price
+            
+            # Execute the trade (live if enabled)
             trade_result = await self._process_trade_execution(trade_data)
             
             if trade_result:
@@ -163,9 +181,20 @@ class PortfolioManager:
             quantity = trade_data["quantity"]
             price = trade_data["price"]
             
-            # Simulate trade execution
-            # In a real implementation, this would interface with a broker API
-            
+            # Place live order if enabled
+            if settings.OKX_ENABLED and settings.OKX_TRADING_ENABLED and self.okx_client:
+                inst_id = self._okx_inst_id(symbol)
+                okx_result = self.okx_client.place_market_order(
+                    inst_id=inst_id,
+                    side=side.lower(),
+                    size=str(quantity),
+                    td_mode="cash"
+                )
+                if okx_result.get("code") != "0":
+                    logger.error(f"OKX order failed: {okx_result}")
+                    return None
+
+            # Simulate trade execution (paper trading or post-live order tracking)
             execution_price = price  # Assume execution at signal price
             fees = quantity * execution_price * 0.001  # 0.1% fee
             
@@ -187,8 +216,16 @@ class PortfolioManager:
         except Exception as e:
             logger.error(f"Error processing trade execution: {e}")
             return None
+
+    def _okx_inst_id(self, symbol: str) -> str:
+        if "-" in symbol:
+            base, quote = symbol.split("-", 1)
+            if quote.upper() == "USD":
+                quote = settings.OKX_QUOTE_CCY
+            return f"{base.upper()}-{quote.upper()}"
+        return f"{symbol.upper()}-{settings.OKX_QUOTE_CCY}"
     
-    async def _update_portfolio_after_trade(self, trade_result: Dict[str, Any]):
+    async def _update_portfolio_after_trade(self, trade_result: Dict[str, Any]) -> float:
         """Update portfolio after trade execution"""
         try:
             symbol = trade_result["symbol"]
@@ -196,6 +233,7 @@ class PortfolioManager:
             quantity = trade_result["quantity"]
             price = trade_result["price"]
             fees = trade_result["fees"]
+            trade_result.setdefault("pnl", 0.0)
             
             trade_value = quantity * price
             
@@ -240,17 +278,21 @@ class PortfolioManager:
                         # Partial close
                         realized_pnl = (price - pos["average_price"]) * quantity - fees
                         self.positions[symbol]["quantity"] -= quantity
+                        self.positions[symbol]["realized_pnl"] += realized_pnl
                     
-                    # Update realized P&L
-                    if "realized_pnl" not in self.positions.get(symbol, {}):
-                        self.positions[symbol]["realized_pnl"] = 0.0
-                    self.positions[symbol]["realized_pnl"] += realized_pnl
+                    # Track realized P&L at portfolio level
+                    self.total_realized_pnl += realized_pnl
+                    trade_result["pnl"] = realized_pnl
+                else:
+                    trade_result["pnl"] = 0.0
             
             # Update total portfolio value
             await self._calculate_total_value()
+            return trade_result.get("pnl", 0.0)
             
         except Exception as e:
             logger.error(f"Error updating portfolio after trade: {e}")
+            return 0.0
     
     async def _calculate_total_value(self):
         """Calculate total portfolio value"""
@@ -345,17 +387,18 @@ class PortfolioManager:
         except Exception as e:
             logger.error(f"Error updating positions: {e}")
     
-    async def update_portfolio(self):
+    async def update_portfolio(self, market_data: Optional[Dict[str, Any]] = None):
         """Update portfolio with current market prices"""
         try:
             # Update current prices for all positions
-            # In a real implementation, this would fetch current market prices
-            
             total_unrealized_pnl = 0.0
             
             for symbol, pos in self.positions.items():
-                # Simulate price update (in reality, fetch from market data)
-                current_price = pos["current_price"] * (1 + np.random.normal(0, 0.01))  # 1% random change
+                current_price = pos["current_price"]
+                if market_data and symbol in market_data:
+                    market_price = market_data[symbol].get("price")
+                    if market_price is not None:
+                        current_price = float(market_price)
                 
                 # Calculate unrealized P&L
                 unrealized_pnl = (current_price - pos["average_price"]) * pos["quantity"]
@@ -389,18 +432,16 @@ class PortfolioManager:
                 
                 # Calculate invested amount
                 invested_amount = 0.0
-                total_realized_pnl = 0.0
                 
                 for symbol, pos in self.positions.items():
                     invested_amount += pos["quantity"] * pos["current_price"]
-                    total_realized_pnl += pos["realized_pnl"]
                 
                 portfolio.invested_amount = invested_amount
-                portfolio.total_pnl = total_realized_pnl
+                portfolio.total_pnl = self.total_realized_pnl
                 
                 # Calculate total P&L percentage
-                if self.total_value > 0:
-                    portfolio.total_pnl_percentage = (total_realized_pnl / (self.total_value - total_realized_pnl)) * 100
+                if self.initial_capital > 0:
+                    portfolio.total_pnl_percentage = ((self.total_value - self.initial_capital) / self.initial_capital) * 100
                 
                 portfolio.updated_at = datetime.utcnow()
                 
@@ -415,12 +456,11 @@ class PortfolioManager:
         """Get portfolio performance metrics"""
         try:
             # Calculate various performance metrics
-            total_realized_pnl = sum(pos["realized_pnl"] for pos in self.positions.values())
+            total_realized_pnl = self.total_realized_pnl
             total_unrealized_pnl = sum(pos["unrealized_pnl"] for pos in self.positions.values())
             
             # Calculate returns
-            initial_capital = 10000.0  # Default starting capital
-            total_return = (self.total_value - initial_capital) / initial_capital * 100
+            total_return = (self.total_value - self.initial_capital) / self.initial_capital * 100 if self.initial_capital > 0 else 0.0
             
             # Calculate Sharpe ratio (simplified)
             sharpe_ratio = self._calculate_sharpe_ratio()
@@ -428,6 +468,10 @@ class PortfolioManager:
             # Calculate max drawdown
             max_drawdown = self._calculate_max_drawdown()
             
+            db = SessionLocal()
+            num_trades = db.query(Trade).filter(Trade.portfolio_id == self.portfolio_id).count()
+            db.close()
+
             metrics = {
                 "total_value": self.total_value,
                 "cash_balance": self.cash_balance,
@@ -439,7 +483,7 @@ class PortfolioManager:
                 "sharpe_ratio": sharpe_ratio,
                 "max_drawdown": max_drawdown,
                 "num_positions": len(self.positions),
-                "num_trades": len(self.trade_history)
+                "num_trades": num_trades
             }
             
             return metrics

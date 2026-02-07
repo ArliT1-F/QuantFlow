@@ -17,7 +17,6 @@ from app.strategies.base_strategy import BaseStrategy
 from app.strategies.momentum_strategy import MomentumStrategy
 from app.strategies.mean_reversion_strategy import MeanReversionStrategy
 from app.strategies.technical_analysis_strategy import TechnicalAnalysisStrategy
-from app.strategies.ml_strategy import MLStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +35,7 @@ class TradingSignal:
     action: str  # BUY, SELL, HOLD
     confidence: float  # 0-1
     price: float
-    quantity: Optional[int] = None
+    quantity: Optional[float] = None
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
     strategy: str = ""
@@ -45,11 +44,17 @@ class TradingSignal:
 class TradingEngine:
     """Main trading engine that coordinates all trading activities"""
     
-    def __init__(self, data_service: DataService, notification_service: NotificationService):
+    def __init__(
+        self,
+        data_service: DataService,
+        notification_service: NotificationService,
+        risk_manager: Optional[RiskManager] = None,
+        portfolio_manager: Optional[PortfolioManager] = None
+    ):
         self.data_service = data_service
         self.notification_service = notification_service
-        self.risk_manager = RiskManager()
-        self.portfolio_manager = PortfolioManager()
+        self.portfolio_manager = portfolio_manager or PortfolioManager()
+        self.risk_manager = risk_manager or RiskManager(portfolio_manager=self.portfolio_manager)
         
         # Trading state
         self.state = TradingState.STOPPED
@@ -69,8 +74,7 @@ class TradingEngine:
         strategy_classes = {
             "momentum": MomentumStrategy,
             "mean_reversion": MeanReversionStrategy,
-            "technical_analysis": TechnicalAnalysisStrategy,
-            "ml_strategy": MLStrategy
+            "technical_analysis": TechnicalAnalysisStrategy
         }
         
         for strategy_name in settings.ENABLED_STRATEGIES:
@@ -156,7 +160,7 @@ class TradingEngine:
         while self.is_running_flag:
             try:
                 # Get current market data
-                market_data = await self.data_service.get_latest_data()
+                market_data = await self.data_service.get_latest_data(include_history=True)
                 
                 if not market_data:
                     logger.warning("No market data available, skipping iteration")
@@ -168,9 +172,12 @@ class TradingEngine:
                 
                 # Process signals
                 await self._process_signals(signals)
+
+                # Enforce stop-loss/take-profit exits
+                await self._process_exit_conditions(market_data)
                 
-                # Update portfolio
-                await self.portfolio_manager.update_portfolio()
+                # Update portfolio with latest market data
+                await self.portfolio_manager.update_portfolio(market_data)
                 
                 # Risk management checks
                 await self.risk_manager.check_risk_limits()
@@ -217,6 +224,7 @@ class TradingEngine:
                     
                     # Send notification
                     await self.notification_service.send_trade_notification(trade_result)
+                    await self.risk_manager.record_trade(trade_result)
                 
             except Exception as e:
                 logger.error(f"Error processing signal {signal.symbol}: {e}")
@@ -225,7 +233,7 @@ class TradingEngine:
         """Execute a trade based on signal"""
         try:
             # Calculate position size
-            position_size = await self.risk_manager.calculate_position_size(signal)
+            position_size = signal.quantity if signal.quantity is not None else await self.risk_manager.calculate_position_size(signal)
             
             if position_size <= 0:
                 logger.info(f"Position size too small for {signal.symbol}")
@@ -251,6 +259,44 @@ class TradingEngine:
         except Exception as e:
             logger.error(f"Error executing trade for {signal.symbol}: {e}")
             return None
+
+    async def _process_exit_conditions(self, market_data: Dict):
+        """Check stop-loss and take-profit for open positions"""
+        try:
+            for symbol, pos in list(self.portfolio_manager.positions.items()):
+                if symbol not in market_data:
+                    continue
+                price = market_data[symbol].get("price")
+                if price is None:
+                    continue
+                stop_loss = pos.get("stop_loss")
+                take_profit = pos.get("take_profit")
+                if stop_loss and price <= stop_loss:
+                    logger.info(f"Stop-loss triggered for {symbol} at {price}")
+                    exit_signal = TradingSignal(
+                        symbol=symbol,
+                        action="SELL",
+                        confidence=1.0,
+                        price=price,
+                        quantity=pos.get("quantity", 0),
+                        strategy="risk_exit",
+                        metadata={"reason": "stop_loss"}
+                    )
+                    await self._execute_trade(exit_signal)
+                elif take_profit and price >= take_profit:
+                    logger.info(f"Take-profit triggered for {symbol} at {price}")
+                    exit_signal = TradingSignal(
+                        symbol=symbol,
+                        action="SELL",
+                        confidence=1.0,
+                        price=price,
+                        quantity=pos.get("quantity", 0),
+                        strategy="risk_exit",
+                        metadata={"reason": "take_profit"}
+                    )
+                    await self._execute_trade(exit_signal)
+        except Exception as e:
+            logger.error(f"Error processing exit conditions: {e}")
     
     async def get_performance_metrics(self) -> Dict[str, Any]:
         """Get trading performance metrics"""

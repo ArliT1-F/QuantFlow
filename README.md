@@ -1,6 +1,6 @@
-# 🤖 Automated Stock Trading Bot **QuantFlow**
+# 🤖 Automated Coin Trading Bot **QuantFlow**
 
-A sophisticated, fully functional automated stock trading bot with real-time data feeds, advanced trading strategies, comprehensive risk management, and a modern web dashboard.
+An educational, **paper-trading** crypto/coin system with real-time data feeds, multiple strategies, risk controls, and a modern web dashboard. It simulates trades locally and does **not** place real broker orders.
 
 ![Python](https://img.shields.io/badge/python-v3.8+-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.104.1-green.svg)
@@ -10,14 +10,14 @@ A sophisticated, fully functional automated stock trading bot with real-time dat
 ## ✨ Features
 
 ### 🎯 Core Trading Engine
-- **Multi-Strategy Framework**: Momentum, Mean Reversion, Technical Analysis, and ML-based strategies
+- **Multi-Strategy Framework**: Momentum, Mean Reversion, and Technical Analysis strategies
 - **Real-time Signal Generation**: Continuous market analysis and signal production
-- **Automated Trade Execution**: Seamless order placement and management
+- **Simulated Trade Execution**: Paper trading with local portfolio updates
 - **Strategy Performance Tracking**: Individual strategy metrics and optimization
 
 ### 📊 Data Integration
-- **Multiple Data Sources**: Yahoo Finance (primary) and Alpha Vantage (secondary)
-- **Real-time Market Data**: Live price feeds, volume, and fundamental data
+- **Multiple Data Sources**: Yahoo Finance (default), Alpha Vantage (optional, limited crypto support), and OKX (recommended for crypto)
+- **Real-time Market Data**: Live price feeds and volume
 - **Technical Indicators**: RSI, MACD, Bollinger Bands, Moving Averages
 - **Historical Data**: Backtesting and analysis capabilities
 
@@ -74,7 +74,21 @@ Edit `.env` file:
 DATABASE_URL=postgresql://username:password@localhost:5432/trading_bot
 
 # API Keys (Optional)
+ALPHA_VANTAGE_ENABLED=false
 ALPHA_VANTAGE_API_KEY=your_key_here
+
+# OKX (Optional - Live/Demo Trading + Market Data)
+OKX_ENABLED=false
+OKX_MARKET_DATA_ENABLED=false
+OKX_TRADING_ENABLED=false
+OKX_DEMO_TRADING=true
+OKX_BASE_URL=https://www.okx.com
+OKX_API_KEY=your_okx_api_key_here
+OKX_SECRET_KEY=your_okx_secret_here
+OKX_PASSPHRASE=your_okx_passphrase_here
+OKX_QUOTE_CCY=USDT
+
+# Tip: For stable crypto data, set OKX_MARKET_DATA_ENABLED=true and set YAHOO_FINANCE_ENABLED=false.
 
 # Trading Configuration
 DEFAULT_CAPITAL=10000
@@ -100,6 +114,7 @@ GRANT ALL PRIVILEGES ON DATABASE trading_bot TO trading_user;
 ```bash
 ./scripts/run.sh
 ```
+Trading is **stopped by default** for safety. Start it from the dashboard or call `POST /api/v1/trading/start`.
 
 ### 5. Access Dashboard
 - **Web Dashboard**: http://localhost:8000
@@ -109,7 +124,7 @@ GRANT ALL PRIVILEGES ON DATABASE trading_bot TO trading_user;
 ## 📈 Trading Strategies
 
 ### 1. Momentum Strategy
-Identifies stocks with strong upward/downward momentum using price movement and volume analysis.
+Identifies coins with strong upward/downward momentum using price movement and volume analysis.
 
 **Key Features:**
 - Price momentum calculation
@@ -134,15 +149,6 @@ Combines multiple technical indicators for comprehensive signal generation.
 - Signal confirmation system
 - Volume analysis
 - Trend identification
-
-### 4. Machine Learning Strategy
-Uses Random Forest ML model to predict price movements based on multiple features.
-
-**Key Features:**
-- Feature engineering
-- Random Forest classifier
-- Probability-based signals
-- Adaptive learning
 
 ## 🛡️ Risk Management
 
@@ -206,6 +212,9 @@ POST /api/v1/risk/limits
 GET  /api/v1/strategies
 GET  /api/v1/strategies/{name}/performance
 
+# Backtesting
+POST /api/v1/backtest/run
+
 # Notifications
 POST /api/v1/notifications/test
 POST /api/v1/notifications/alert
@@ -251,15 +260,14 @@ MAX_SECTOR_EXPOSURE = 0.3        # 30% max exposure to any sector
 # Enable/disable strategies
 ENABLED_STRATEGIES = [
     "momentum",
-    "mean_reversion", 
-    "technical_analysis",
-    "ml_strategy"
+    "mean_reversion",
+    "technical_analysis"
 ]
 
 # Default symbols to trade
 DEFAULT_SYMBOLS = [
-    "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA",
-    "META", "NVDA", "NFLX", "AMD", "INTC"
+    "BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "ADA-USD",
+    "DOGE-USD", "AVAX-USD", "LINK-USD", "LTC-USD", "BCH-USD"
 ]
 ```
 
@@ -299,7 +307,7 @@ EMAIL_PASSWORD=your_app_password
 
 ### Project Structure
 ```
-automated-stock-trading-bot/
+automated-coin-trading-bot/
 ├── app/
 │   ├── api/           # API routes and endpoints
 │   ├── core/          # Core configuration and database
@@ -311,7 +319,6 @@ automated-stock-trading-bot/
 ├── scripts/           # Setup and utility scripts
 ├── static/            # Web dashboard files
 ├── logs/              # Application logs
-└── models/            # ML model storage
 ```
 
 ### Adding New Strategies

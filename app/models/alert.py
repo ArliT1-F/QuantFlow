@@ -20,7 +20,7 @@ class Alert(Base):
     priority = Column(String(10), default="MEDIUM")  # LOW, MEDIUM, HIGH, CRITICAL
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     sent_at = Column(DateTime(timezone=True), nullable=True)
-    metadata = Column(JSON, nullable=True)
+    alert_metadata = Column(JSON, nullable=True)
     
 class AlertRule(Base):
     """Alert rule model for automated alerts"""

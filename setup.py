@@ -1,5 +1,5 @@
 """
-Setup script for the Automated Stock Trading Bot
+Setup script for the Automated Coin Trading Bot
 """
 from setuptools import setup, find_packages
 
@@ -10,14 +10,14 @@ with open("requirements.txt", "r", encoding="utf-8") as fh:
     requirements = [line.strip() for line in fh if line.strip() and not line.startswith("#")]
 
 setup(
-    name="automated-stock-trading-bot",
-    version="1.0.0",
-    author="Trading Bot Developer",
-    author_email="developer@example.com",
-    description="A sophisticated automated stock trading bot with real-time data feeds and advanced strategies",
+    name="QuantFlow",
+    version="1.0.2",
+    author="ArliT1-F",
+    author_email="arliturka@gmail.com",
+    description="An educational automated coin trading bot with real-time data feeds and robust strategies",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/automated-stock-trading-bot",
+    url="https://github.com/ArliT1-F/QuantFlow",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 4 - Beta",

@@ -1,16 +1,18 @@
-# 🤖 Automated Stock Trading Bot - Project Overview
+# 🤖 Automated Coin Trading Bot - Project Overview
 
 ## 🎯 Project Summary
 
-This is a **sophisticated, fully functional automated stock trading bot** that provides:
+This is an **educational, paper-trading coin trading system** that provides:
 
-- **Real-time market data integration** from multiple sources
-- **4 advanced trading strategies** (Momentum, Mean Reversion, Technical Analysis, ML)
+- **Real-time market data integration** from multiple sources (including optional OKX)
+- **Multiple trading strategies** (Momentum, Mean Reversion, Technical Analysis)
 - **Comprehensive risk management** with position sizing and portfolio controls
 - **Modern web dashboard** with real-time monitoring and control
 - **Complete API** for external integrations
 - **PostgreSQL database** for data persistence
 - **Email notification system** for alerts and reports
+ 
+**Note:** Trade execution is simulated locally. There is no exchange or broker integration.
 
 ## 🏗️ Architecture Overview
 
@@ -58,7 +60,7 @@ This is a **sophisticated, fully functional automated stock trading bot** that p
 ## 📁 Project Structure
 
 ```
-automated-stock-trading-bot/
+automated-coin-trading-bot/
 ├── 📁 app/                          # Main application package
 │   ├── 📁 api/                      # API routes and endpoints
 │   │   └── routes.py                # All API endpoints
@@ -81,7 +83,6 @@ automated-stock-trading-bot/
 │       ├── momentum_strategy.py     # Momentum trading
 │       ├── mean_reversion_strategy.py # Mean reversion
 │       ├── technical_analysis_strategy.py # Technical analysis
-│       └── ml_strategy.py           # Machine learning
 ├── 📁 alembic/                      # Database migrations
 │   ├── env.py                       # Migration environment
 │   ├── script.py.mako               # Migration template
@@ -96,12 +97,11 @@ automated-stock-trading-bot/
 ├── 📁 static/                       # Web dashboard files
 │   └── index.html                   # Main dashboard
 ├── 📁 logs/                         # Application logs
-├── 📁 models/                       # ML model storage
 ├── main.py                          # Application entry point
 ├── requirements.txt                 # Python dependencies
 ├── setup.py                         # Package setup
 ├── alembic.ini                      # Migration configuration
-├── .env.example                     # Environment template
+├── .env                             # Environment configuration
 └── README.md                        # Project documentation
 ```
 
@@ -132,10 +132,9 @@ automated-stock-trading-bot/
 - **Enforces** daily trading and loss limits
 
 ### 5. Trading Strategies (`app/strategies/`)
-- **Momentum Strategy**: Identifies trending stocks
+- **Momentum Strategy**: Identifies trending coins
 - **Mean Reversion Strategy**: Finds overbought/oversold conditions
 - **Technical Analysis Strategy**: Uses multiple indicators
-- **ML Strategy**: Machine learning-based predictions
 
 ### 6. Web Dashboard (`static/index.html`)
 - **Real-time** portfolio and market data display
@@ -278,7 +277,7 @@ cd QuanFlow
 ./scripts/setup.sh
 
 # Configure environment
-cp .env.example .env
+# Ensure .env exists and edit it with your settings
 # Edit .env with your settings
 
 # Run the bot
@@ -317,10 +316,9 @@ cp .env.example .env
 - **Additional data sources** (Bloomberg, Reuters)
 - **More trading strategies** (arbitrage, pairs trading)
 - **Mobile app** for monitoring
-- **Advanced ML models** (LSTM, Transformer)
 - **Paper trading mode** for testing
 - **Multi-broker support** (Interactive Brokers, TD Ameritrade)
 
 ---
 
-**This automated stock trading bot represents a comprehensive, production-ready system for educational and research purposes. It demonstrates advanced software engineering practices, financial market integration, and sophisticated trading logic implementation.**
+**This automated coin trading bot represents a comprehensive, production-ready system for educational and research purposes. It demonstrates advanced software engineering practices, market data integration, and robust trading logic implementation.**

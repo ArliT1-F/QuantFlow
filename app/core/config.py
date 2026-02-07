@@ -3,7 +3,8 @@ Application configuration management
 """
 import os
 from typing import List, Optional
-from pydantic import BaseSettings, validator
+from pydantic import validator
+from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -14,12 +15,21 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "postgresql://username:password@localhost:5432/trading_bot"
     
-    # Redis
-    REDIS_URL: str = "redis://localhost:6379/0"
-    
     # API Keys
+    ALPHA_VANTAGE_ENABLED: bool = False
     ALPHA_VANTAGE_API_KEY: Optional[str] = None
     YAHOO_FINANCE_ENABLED: bool = True
+
+    # OKX Configuration
+    OKX_ENABLED: bool = False
+    OKX_MARKET_DATA_ENABLED: bool = False
+    OKX_TRADING_ENABLED: bool = False
+    OKX_DEMO_TRADING: bool = True
+    OKX_BASE_URL: str = "https://www.okx.com"
+    OKX_API_KEY: Optional[str] = None
+    OKX_SECRET_KEY: Optional[str] = None
+    OKX_PASSPHRASE: Optional[str] = None
+    OKX_QUOTE_CCY: str = "USDT"
     
     # Trading Configuration
     DEFAULT_CAPITAL: float = 10000.0
@@ -27,7 +37,7 @@ class Settings(BaseSettings):
     STOP_LOSS_PERCENTAGE: float = 0.05  # 5%
     TAKE_PROFIT_PERCENTAGE: float = 0.15  # 15%
     MAX_DAILY_TRADES: int = 10
-    MIN_VOLUME: int = 100000  # Minimum daily volume
+    MIN_VOLUME: int = 0  # Minimum daily volume (0 disables hard minimum for crypto)
     
     # Risk Management
     MAX_PORTFOLIO_RISK: float = 0.02  # 2% portfolio risk per trade
@@ -56,13 +66,13 @@ class Settings(BaseSettings):
     
     # Supported Symbols
     DEFAULT_SYMBOLS: List[str] = [
-        "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", 
-        "META", "NVDA", "NFLX", "AMD", "INTC"
+        "BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "ADA-USD",
+        "DOGE-USD", "AVAX-USD", "LINK-USD", "LTC-USD", "BCH-USD"
     ]
     
     # Strategy Configuration
     ENABLED_STRATEGIES: List[str] = [
-        "momentum", "mean_reversion", "technical_analysis", "ml_strategy"
+        "momentum", "mean_reversion", "technical_analysis"
     ]
     
     @validator('DEFAULT_CAPITAL', 'MAX_POSITION_SIZE', 'STOP_LOSS_PERCENTAGE', 'TAKE_PROFIT_PERCENTAGE')

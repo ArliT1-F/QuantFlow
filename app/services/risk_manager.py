@@ -27,13 +27,20 @@ class RiskLimits:
 class RiskManager:
     """Risk management system for controlling trading risk"""
     
-    def __init__(self):
+    def __init__(self, portfolio_manager: Optional[Any] = None):
         self.risk_limits = RiskLimits()
         self.daily_trades = 0
         self.daily_pnl = 0.0
         self.last_reset_date = datetime.utcnow().date()
         self.position_correlations = {}
         self.sector_exposures = {}
+        self.portfolio_manager = portfolio_manager
+
+        # Sync limits from settings
+        self.risk_limits.max_position_size = settings.MAX_POSITION_SIZE
+        self.risk_limits.max_portfolio_risk = settings.MAX_PORTFOLIO_RISK
+        self.risk_limits.max_daily_trades = settings.MAX_DAILY_TRADES
+        self.risk_limits.min_volume = settings.MIN_VOLUME
         
         logger.info("Risk manager initialized")
     
@@ -57,16 +64,13 @@ class RiskManager:
             if not self._check_daily_loss_limit():
                 logger.info(f"Daily loss limit reached for {signal.symbol}")
                 return False
-            
-            # Check position size limit
-            if not await self._check_position_size_limit(signal):
-                logger.info(f"Position size limit exceeded for {signal.symbol}")
+
+            # Apply position sizing (clamps to limits)
+            sized_qty = await self.calculate_position_size(signal)
+            if sized_qty <= 0:
+                logger.info(f"Position size too small for {signal.symbol}")
                 return False
-            
-            # Check portfolio risk limit
-            if not await self._check_portfolio_risk_limit(signal):
-                logger.info(f"Portfolio risk limit exceeded for {signal.symbol}")
-                return False
+            signal.quantity = sized_qty
             
             # Check correlation limits
             if not await self._check_correlation_limit(signal):
@@ -97,16 +101,18 @@ class RiskManager:
     def _check_daily_loss_limit(self) -> bool:
         """Check if daily loss limit is exceeded"""
         self._reset_daily_counters_if_needed()
-        return self.daily_pnl > -self.risk_limits.max_daily_loss
+        portfolio_value = self._get_portfolio_value()
+        max_daily_loss_amount = portfolio_value * self.risk_limits.max_daily_loss
+        return self.daily_pnl > -max_daily_loss_amount
     
     async def _check_position_size_limit(self, signal: Signal) -> bool:
         """Check if position size is within limits"""
         try:
-            # This would typically check against current portfolio value
-            # For now, we'll use a simplified check
-            portfolio_value = 10000  # Default portfolio value
-            
-            position_value = signal.price * (signal.quantity or 100)
+            portfolio_value = self._get_portfolio_value()
+            if portfolio_value <= 0:
+                return False
+            position_size = await self.calculate_position_size(signal)
+            position_value = signal.price * position_size
             position_size_ratio = position_value / portfolio_value
             
             return position_size_ratio <= self.risk_limits.max_position_size
@@ -123,10 +129,12 @@ class RiskManager:
                 return False
             
             risk_per_share = abs(signal.price - signal.stop_loss)
-            total_risk = risk_per_share * (signal.quantity or 100)
+            position_size = await self.calculate_position_size(signal)
+            total_risk = risk_per_share * position_size
             
-            # This would typically check against current portfolio value
-            portfolio_value = 10000  # Default portfolio value
+            portfolio_value = self._get_portfolio_value()
+            if portfolio_value <= 0:
+                return False
             risk_ratio = total_risk / portfolio_value
             
             return risk_ratio <= self.risk_limits.max_portfolio_risk
@@ -170,11 +178,14 @@ class RiskManager:
     
     def _check_volume_requirements(self, signal: Signal) -> bool:
         """Check if volume requirements are met"""
-        # This would typically check against actual volume data
-        # For now, we'll assume volume requirements are met
-        return True
+        volume = None
+        if signal.metadata:
+            volume = signal.metadata.get("volume")
+        if volume is None:
+            return True
+        return volume >= self.risk_limits.min_volume
     
-    async def calculate_position_size(self, signal: Signal) -> int:
+    async def calculate_position_size(self, signal: Signal) -> float:
         """
         Calculate optimal position size based on risk management
         
@@ -185,14 +196,17 @@ class RiskManager:
             Number of shares to trade
         """
         try:
-            # This would typically use actual portfolio value
-            portfolio_value = 10000  # Default portfolio value
+            portfolio_value = self._get_portfolio_value()
+            if portfolio_value <= 0:
+                return 0
             
             # Calculate position size based on risk per trade
             if signal.stop_loss is None:
                 return 0
             
             risk_per_share = abs(signal.price - signal.stop_loss)
+            if risk_per_share <= 0:
+                return 0
             max_risk_amount = portfolio_value * self.risk_limits.max_portfolio_risk
             
             # Calculate position size
@@ -200,13 +214,15 @@ class RiskManager:
             
             # Apply position size limit
             max_position_value = portfolio_value * self.risk_limits.max_position_size
-            max_shares_by_value = int(max_position_value / signal.price)
+            max_units_by_value = max_position_value / signal.price if signal.price > 0 else 0.0
             
             # Use the smaller of the two limits
-            final_position_size = min(position_size, max_shares_by_value)
+            final_position_size = min(position_size, max_units_by_value)
             
-            # Ensure minimum of 1 share
-            return max(1, final_position_size)
+            # If position can't fit within limits, return 0
+            if final_position_size <= 0:
+                return 0.0
+            return float(final_position_size)
             
         except Exception as e:
             logger.error(f"Error calculating position size: {e}")
@@ -240,9 +256,9 @@ class RiskManager:
             symbol = trade_data.get("symbol", "")
             if symbol:
                 self.position_correlations[symbol] = {
-                    "AAPL": 0.3,  # Simulated correlation
-                    "MSFT": 0.4,
-                    "GOOGL": 0.2
+                    "BTC-USD": 0.3,  # Simulated correlation
+                    "ETH-USD": 0.4,
+                    "SOL-USD": 0.2
                 }
             
             # Update sector exposures (simplified)
@@ -289,6 +305,12 @@ class RiskManager:
             "sector_exposures": self.sector_exposures,
             "last_reset_date": self.last_reset_date.isoformat()
         }
+
+    def _get_portfolio_value(self) -> float:
+        """Get current portfolio value for risk calculations"""
+        if self.portfolio_manager:
+            return max(self.portfolio_manager.total_value, 0.0)
+        return settings.DEFAULT_CAPITAL
     
     def update_risk_limits(self, new_limits: Dict[str, Any]):
         """

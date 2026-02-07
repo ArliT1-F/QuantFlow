@@ -1,15 +1,16 @@
-# Getting Started with the Automated Stock Trading Bot
+# Getting Started with the Automated Coin Trading Bot
 
 ## Overview
 
-This automated stock trading bot is a sophisticated system that provides:
+This automated coin trading bot is an educational, **paper-trading** system that provides:
 
-- **Real-time Market Data**: Integration with Yahoo Finance and Alpha Vantage
-- **Multiple Trading Strategies**: Momentum, Mean Reversion, Technical Analysis, and ML-based strategies
+- **Real-time Market Data**: Integration with Yahoo Finance (default), Alpha Vantage (optional), and OKX (optional)
+- **Multiple Trading Strategies**: Momentum, Mean Reversion, and Technical Analysis
 - **Risk Management**: Position sizing, stop-loss, take-profit, and portfolio risk controls
 - **Web Dashboard**: Real-time monitoring and control interface
 - **Portfolio Management**: Position tracking and performance analytics
 - **Notification System**: Email alerts for trades and important events
+- **Backtesting**: Run historical backtests before live paper trading
 
 ## ⚠️ Important Disclaimer
 
@@ -20,7 +21,15 @@ This automated stock trading bot is a sophisticated system that provides:
 - Python 3.8 or higher
 - PostgreSQL database
 - Internet connection for market data
-- (Optional) Alpha Vantage API key for enhanced data
+- (Optional) Alpha Vantage API key for enhanced data (disabled by default)
+
+## OKX (Optional)
+
+If you want live or demo trading through OKX:
+1. Create an OKX account and API key.
+2. Set `OKX_ENABLED=true` and `OKX_TRADING_ENABLED=true` in your `.env`.
+3. For demo trading, set `OKX_DEMO_TRADING=true`.
+4. If your region uses a different OKX base URL, set `OKX_BASE_URL` accordingly.
 
 ## Quick Start
 
@@ -29,7 +38,7 @@ This automated stock trading bot is a sophisticated system that provides:
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd automated-stock-trading-bot
+cd automated-coin-trading-bot
 
 # Run the setup script
 ./scripts/setup.sh
@@ -76,6 +85,7 @@ GRANT ALL PRIVILEGES ON DATABASE trading_bot TO trading_user;
 # Start the trading bot
 ./scripts/run.sh
 ```
+Trading is **stopped by default** for safety. Start it from the dashboard or call `POST /api/v1/trading/start`.
 
 ### 5. Access the Dashboard
 
@@ -87,10 +97,9 @@ Open your browser and go to:
 
 ### Trading Strategies
 
-1. **Momentum Strategy**: Identifies stocks with strong upward or downward momentum
+1. **Momentum Strategy**: Identifies coins with strong upward or downward momentum
 2. **Mean Reversion Strategy**: Finds overbought/oversold conditions for reversal trades
 3. **Technical Analysis Strategy**: Uses multiple technical indicators (RSI, MACD, Bollinger Bands)
-4. **ML Strategy**: Machine learning-based signal generation using Random Forest
 
 ### Risk Management
 
@@ -132,7 +141,7 @@ MAX_SECTOR_EXPOSURE = 0.3  # 30% max exposure to any sector
 ### Supported Symbols
 
 Default symbols in `settings.DEFAULT_SYMBOLS`:
-- AAPL, MSFT, GOOGL, AMZN, TSLA
+- BTC-USD, ETH-USD, SOL-USD, XRP-USD, ADA-USD
 - META, NVDA, NFLX, AMD, INTC
 
 Add more symbols by editing the configuration.
@@ -195,7 +204,7 @@ EMAIL_PASSWORD=your_app_password
 
 2. **Market Data Not Loading**
    - Check internet connection
-   - Verify Alpha Vantage API key (if using)
+   - Verify Alpha Vantage API key and set `ALPHA_VANTAGE_ENABLED=true` (if using)
    - Check Yahoo Finance access
 
 3. **Trading Not Starting**

@@ -38,4 +38,4 @@ class StrategySignal(Base):
     strength = Column(Float, nullable=False)  # Signal strength 0-1
     price = Column(Float, nullable=False)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
-    metadata = Column(JSON, nullable=True)  # Additional signal data
+    signal_metadata = Column(JSON, nullable=True)  # Additional signal data

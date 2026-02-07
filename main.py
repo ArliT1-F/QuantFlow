@@ -1,8 +1,9 @@
 """
-Main entry point for the Automated Stock Trading Bot
+Main entry point for the Automated Coin Trading Bot
 """
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +18,13 @@ from app.services.data_service import DataService
 from app.services.notification_service import NotificationService
 from app.services.risk_manager import RiskManager
 from app.services.portfolio_manager import PortfolioManager
+from app.services.okx_client import OkxClient
+from app.services.backtest_service import BacktestService
+
+# Ensure log directory exists before configuring logging
+log_dir = os.path.dirname(settings.LOG_FILE)
+if log_dir:
+    os.makedirs(log_dir, exist_ok=True)
 
 # Configure logging
 logging.basicConfig(
@@ -34,13 +42,14 @@ logger = logging.getLogger(__name__)
 trading_engine = None
 data_service = None
 notification_service = None
+backtest_service = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
-    global trading_engine, data_service, notification_service
+    global trading_engine, data_service, notification_service, backtest_service
     
-    logger.info("Starting Automated Stock Trading Bot...")
+    logger.info("Starting Automated Coin Trading Bot...")
     
     # Initialize database
     await init_db()
@@ -48,12 +57,29 @@ async def lifespan(app: FastAPI):
     # Initialize services
     data_service = DataService()
     notification_service = NotificationService()
-    risk_manager = RiskManager()
-    portfolio_manager = PortfolioManager()
-    trading_engine = TradingEngine(data_service, notification_service)
+    okx_client = None
+    if settings.OKX_ENABLED:
+        okx_client = OkxClient(
+            api_key=settings.OKX_API_KEY,
+            secret_key=settings.OKX_SECRET_KEY,
+            passphrase=settings.OKX_PASSPHRASE,
+            base_url=settings.OKX_BASE_URL,
+            demo=settings.OKX_DEMO_TRADING
+        )
+    portfolio_manager = PortfolioManager(okx_client=okx_client)
+    await portfolio_manager.initialize()
+    risk_manager = RiskManager(portfolio_manager=portfolio_manager)
+    backtest_service = BacktestService(data_service)
+    trading_engine = TradingEngine(
+        data_service,
+        notification_service,
+        risk_manager=risk_manager,
+        portfolio_manager=portfolio_manager
+    )
+    from app.api.routes import set_services
+    set_services(trading_engine, data_service, portfolio_manager, risk_manager, notification_service, backtest_service)
     
-    # Start background tasks
-    asyncio.create_task(trading_engine.start())
+    # Start background tasks (data only; trading is manual for safety)
     asyncio.create_task(data_service.start_data_collection())
     
     logger.info("Trading bot started successfully!")
@@ -64,12 +90,14 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down trading bot...")
     if trading_engine:
         await trading_engine.stop()
+    if data_service:
+        await data_service.stop_data_collection()
     logger.info("Trading bot stopped.")
 
 # Create FastAPI app
 app = FastAPI(
-    title="Automated Stock Trading Bot",
-    description="A sophisticated automated trading system",
+    title="Automated Coin Trading Bot",
+    description="An educational paper-trading system for coins",
     version="1.0.0",
     lifespan=lifespan
 )
@@ -86,12 +114,6 @@ app.add_middleware(
 # Include API routes
 app.include_router(api_router, prefix="/api/v1")
 
-# Inject services into API routes
-@app.on_event("startup")
-async def inject_services():
-    from app.api.routes import set_services
-    set_services(trading_engine, data_service, portfolio_manager, risk_manager, notification_service)
-
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -99,7 +121,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 async def root():
     """Root endpoint"""
     return {
-        "message": "Automated Stock Trading Bot API",
+        "message": "Automated Coin Trading Bot API",
         "version": "1.0.0",
         "status": "running"
     }

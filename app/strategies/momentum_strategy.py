@@ -1,25 +1,25 @@
 """
 Momentum trading strategy based on price and volume momentum
 """
-import pandas as pd
 import numpy as np
+import pandas as pd
 from typing import Dict, Optional, Any
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from app.strategies.base_strategy import BaseStrategy, Signal
 
 class MomentumStrategy(BaseStrategy):
-    """Momentum strategy that identifies stocks with strong upward or downward momentum"""
+    """Momentum strategy that identifies coins with strong upward or downward momentum"""
     
     def __init__(self):
         super().__init__("Momentum Strategy")
         self.parameters = {
-            "lookback_period": 20,  # Days to look back for momentum calculation
-            "momentum_threshold": 0.05,  # Minimum momentum threshold (5%)
-            "volume_threshold": 1.5,  # Volume must be 1.5x average
+            "lookback_period": 14,  # Days to look back for momentum calculation
+            "momentum_threshold": 0.015,  # Minimum momentum threshold (1.5%)
+            "volume_threshold": 1.1,  # Volume must be 1.1x average
             "rsi_oversold": 30,  # RSI oversold level
             "rsi_overbought": 70,  # RSI overbought level
-            "min_confidence": 0.6  # Minimum confidence for signal
+            "min_confidence": 0.4  # Minimum confidence for signal
         }
     
     async def generate_signal(self, symbol: str, data: Dict[str, Any]) -> Optional[Signal]:
@@ -27,7 +27,7 @@ class MomentumStrategy(BaseStrategy):
         Generate momentum-based trading signal
         
         Args:
-            symbol: Stock symbol
+            symbol: Coin symbol
             data: Market data for the symbol
             
         Returns:
@@ -38,13 +38,13 @@ class MomentumStrategy(BaseStrategy):
         
         try:
             # Calculate momentum indicators
-            momentum_score = await self._calculate_momentum_score(symbol, data)
+            momentum_data = await self._calculate_momentum_metrics(symbol, data)
             
-            if momentum_score is None:
+            if not momentum_data:
                 return None
             
             # Determine signal based on momentum
-            signal = self._create_signal_from_momentum(symbol, data, momentum_score)
+            signal = self._create_signal_from_momentum(symbol, data, momentum_data)
             
             return signal
             
@@ -52,60 +52,68 @@ class MomentumStrategy(BaseStrategy):
             print(f"Error generating momentum signal for {symbol}: {e}")
             return None
     
-    async def _calculate_momentum_score(self, symbol: str, data: Dict[str, Any]) -> Optional[float]:
-        """Calculate momentum score for the symbol"""
+    async def _calculate_momentum_metrics(self, symbol: str, data: Dict[str, Any]) -> Optional[Dict[str, float]]:
+        """Calculate momentum metrics for the symbol using recent history"""
         try:
-            # This would typically use historical data
-            # For now, we'll use current data to simulate momentum
-            
-            price = data.get("price", 0)
-            volume = data.get("volume", 0)
-            change_percent = data.get("change_percent", 0)
-            
+            history = data.get("history", [])
+            if not history or len(history) < self.parameters["lookback_period"] + 1:
+                return None
+
+            closes = np.array([h["close"] for h in history])
+            volumes = np.array([h["volume"] for h in history])
+
+            price = closes[-1]
+            volume = volumes[-1]
             if price <= 0 or volume <= 0:
                 return None
-            
-            # Simple momentum calculation based on price change and volume
-            price_momentum = abs(change_percent) / 100  # Normalize to 0-1
-            
-            # Volume momentum (simplified)
-            volume_momentum = min(volume / 1000000, 1.0)  # Normalize volume
-            
-            # Combined momentum score
-            momentum_score = (price_momentum * 0.7) + (volume_momentum * 0.3)
-            
-            return momentum_score
+
+            lookback = self.parameters["lookback_period"]
+            price_then = closes[-1 - lookback]
+            momentum = (price - price_then) / price_then if price_then > 0 else 0.0
+            volume_avg = np.mean(volumes[-lookback:])
+            volume_ratio = volume / volume_avg if volume_avg > 0 else 0.0
+
+            rsi = self._calculate_rsi(pd.Series(closes))
+
+            return {
+                "momentum": momentum,
+                "volume_ratio": volume_ratio,
+                "rsi": rsi,
+                "price": price,
+                "volume": volume
+            }
             
         except Exception as e:
             print(f"Error calculating momentum score for {symbol}: {e}")
             return None
     
-    def _create_signal_from_momentum(self, symbol: str, data: Dict[str, Any], momentum_score: float) -> Optional[Signal]:
-        """Create trading signal based on momentum score"""
+    def _create_signal_from_momentum(self, symbol: str, data: Dict[str, Any], momentum_data: Dict[str, float]) -> Optional[Signal]:
+        """Create trading signal based on momentum metrics"""
         try:
-            price = data.get("price", 0)
-            change_percent = data.get("change_percent", 0)
-            volume = data.get("volume", 0)
-            
-            # Check if momentum is strong enough
-            if momentum_score < self.parameters["min_confidence"]:
-                return None
-            
+            price = momentum_data["price"]
+            volume = momentum_data["volume"]
+            momentum = momentum_data["momentum"]
+            volume_ratio = momentum_data["volume_ratio"]
+            rsi = momentum_data["rsi"]
+
             # Check volume threshold
-            if volume < self.parameters["volume_threshold"] * 100000:  # Minimum volume
+            if volume_ratio < self.parameters["volume_threshold"]:
                 return None
-            
-            # Determine action based on price direction
-            if change_percent > self.parameters["momentum_threshold"] * 100:
+
+            # Determine action based on momentum direction with RSI filter
+            if momentum > self.parameters["momentum_threshold"] and rsi < self.parameters["rsi_overbought"]:
                 # Strong upward momentum - BUY signal
                 action = "BUY"
-                confidence = min(momentum_score, 1.0)
-            elif change_percent < -self.parameters["momentum_threshold"] * 100:
+                confidence = min(abs(momentum) * 5, 1.0)
+            elif momentum < -self.parameters["momentum_threshold"] and rsi > self.parameters["rsi_oversold"]:
                 # Strong downward momentum - SELL signal
                 action = "SELL"
-                confidence = min(momentum_score, 1.0)
+                confidence = min(abs(momentum) * 5, 1.0)
             else:
                 # Insufficient momentum
+                return None
+
+            if confidence < self.parameters["min_confidence"]:
                 return None
             
             # Calculate stop loss and take profit
@@ -122,8 +130,9 @@ class MomentumStrategy(BaseStrategy):
                 take_profit=take_profit,
                 metadata={
                     "strategy": "momentum",
-                    "momentum_score": momentum_score,
-                    "change_percent": change_percent,
+                    "momentum": momentum,
+                    "volume_ratio": volume_ratio,
+                    "rsi": rsi,
                     "volume": volume,
                     "timestamp": datetime.utcnow().isoformat()
                 }
