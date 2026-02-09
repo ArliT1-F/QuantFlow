@@ -9,7 +9,7 @@ __pycache__/
 
 # Virtual environments
 venv/
-.env/
+.env
 
 # Databases (runtime only)
 *.db
@@ -21,7 +21,4 @@ local.ini
 .env.ini
 
 # Project-specific
-alembic/
 logs/trading_bot.log
-alembic/versions/001_initial_migration.py
-alembic.ini

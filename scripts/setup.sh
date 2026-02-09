@@ -67,11 +67,21 @@ EMAIL_HOST=smtp.gmail.com
 EMAIL_PORT=587
 EMAIL_USER=your_email@gmail.com
 EMAIL_PASSWORD=your_app_password
+EMAIL_TO=your_email@gmail.com
 
 # Security
 SECRET_KEY=your_secret_key_here
+API_AUTH_ENABLED=true
+API_AUTH_TOKEN=change-this-token
+CORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
+
+# Execution Controls
+SIGNAL_COOLDOWN_SECONDS=900
+MIN_SIGNAL_CONFIDENCE=0.55
+CONFLICT_STRENGTH_RATIO=1.35
+MIN_HOLD_SECONDS=900
 
 # Logging
 LOG_LEVEL=INFO
@@ -97,7 +107,7 @@ fi
 # Run database migrations
 echo "🔄 Running database migrations..."
 if [ -f alembic.ini ]; then
-    alembic upgrade head || echo "⚠️ Database migrations failed. Please check your database connection."
+    venv/bin/python -m alembic upgrade head || echo "⚠️ Database migrations failed. Please check your database connection."
 else
     echo "⚠️ Alembic configuration not found."
 fi

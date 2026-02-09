@@ -2,7 +2,8 @@
 Application configuration management
 """
 import os
-from typing import List, Optional
+import json
+from typing import Any, List, Optional
 from pydantic import validator
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
@@ -45,6 +46,10 @@ class Settings(BaseSettings):
     MAX_SECTOR_EXPOSURE: float = 0.3  # 30% max exposure to any sector
     MIN_POSITION_UNITS: float = 0.0005  # smallest tradable size
     MIN_POSITION_NOTIONAL: float = 10.0  # minimum USD notional per trade
+    SIGNAL_COOLDOWN_SECONDS: int = 900
+    MIN_SIGNAL_CONFIDENCE: float = 0.55
+    CONFLICT_STRENGTH_RATIO: float = 1.35
+    MIN_HOLD_SECONDS: int = 900
     
     # Notification Settings
     EMAIL_ENABLED: bool = False
@@ -52,11 +57,15 @@ class Settings(BaseSettings):
     EMAIL_PORT: int = 587
     EMAIL_USER: Optional[str] = None
     EMAIL_PASSWORD: Optional[str] = None
+    EMAIL_TO: str = ""
     
     # Security
     SECRET_KEY: str = "your-secret-key-change-this"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    API_AUTH_ENABLED: bool = True
+    API_AUTH_TOKEN: str = "change-me-api-token"
+    CORS_ORIGINS: str = "http://localhost:8000,http://127.0.0.1:8000"
     
     # Logging
     LOG_LEVEL: str = "INFO"
@@ -65,6 +74,7 @@ class Settings(BaseSettings):
     # Data Collection
     DATA_UPDATE_INTERVAL: int = 60  # seconds
     BACKTEST_DAYS: int = 252  # 1 year of trading days
+    PORTFOLIO_SNAPSHOT_INTERVAL: int = 60  # seconds
     
     # Supported Symbols
     DEFAULT_SYMBOLS: List[str] = [
@@ -88,6 +98,39 @@ class Settings(BaseSettings):
         if v > 1.0:
             raise ValueError('Position size cannot exceed 100%')
         return v
+
+    @validator('MIN_SIGNAL_CONFIDENCE')
+    def validate_confidence(cls, v):
+        if v < 0 or v > 1:
+            raise ValueError('MIN_SIGNAL_CONFIDENCE must be between 0 and 1')
+        return v
+
+    @staticmethod
+    def _parse_str_list(value: Any) -> List[str]:
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if value is None:
+            return []
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return []
+            if stripped.startswith('[') and stripped.endswith(']'):
+                try:
+                    parsed = json.loads(stripped)
+                    if isinstance(parsed, list):
+                        return [str(item).strip() for item in parsed if str(item).strip()]
+                except json.JSONDecodeError:
+                    pass
+            return [item.strip() for item in stripped.split(',') if item.strip()]
+        return [str(value).strip()] if str(value).strip() else []
+
+    def get_cors_origins(self) -> List[str]:
+        origins = self._parse_str_list(self.CORS_ORIGINS)
+        return origins or ["http://localhost:8000", "http://127.0.0.1:8000"]
+
+    def get_email_recipients(self) -> List[str]:
+        return self._parse_str_list(self.EMAIL_TO)
     
     class Config:
         env_file = ".env"

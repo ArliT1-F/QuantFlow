@@ -95,12 +95,22 @@ DEFAULT_CAPITAL=10000
 MAX_POSITION_SIZE=0.1
 STOP_LOSS_PERCENTAGE=0.05
 TAKE_PROFIT_PERCENTAGE=0.15
+SIGNAL_COOLDOWN_SECONDS=900
+MIN_SIGNAL_CONFIDENCE=0.55
+CONFLICT_STRENGTH_RATIO=1.35
+MIN_HOLD_SECONDS=900
 
 # Email Notifications (Optional)
 EMAIL_ENABLED=false
 EMAIL_HOST=smtp.gmail.com
 EMAIL_USER=your_email@gmail.com
 EMAIL_PASSWORD=your_app_password
+EMAIL_TO=ops@example.com,alerts@example.com
+
+# API Security
+API_AUTH_ENABLED=true
+API_AUTH_TOKEN=replace-with-a-long-random-token
+CORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
 ```
 
 ### 3. Database Setup
@@ -112,6 +122,10 @@ GRANT ALL PRIVILEGES ON DATABASE trading_bot TO trading_user;
 
 ### 4. Run the Bot
 ```bash
+# Ensure schema is current
+venv/bin/python -m alembic upgrade head
+
+# Start app
 ./scripts/run.sh
 ```
 Trading is **stopped by default** for safety. Start it from the dashboard or call `POST /api/v1/trading/start`.
@@ -198,6 +212,7 @@ GET  /api/v1/trading/status
 GET  /api/v1/portfolio/overview
 GET  /api/v1/portfolio/positions
 GET  /api/v1/portfolio/trades
+GET  /api/v1/portfolio/performance
 
 # Market Data
 GET  /api/v1/market/data
@@ -207,6 +222,10 @@ GET  /api/v1/market/historical/{symbol}
 # Risk Management
 GET  /api/v1/risk/metrics
 POST /api/v1/risk/limits
+
+# Runtime Settings
+GET  /api/v1/settings/trading
+POST /api/v1/settings/trading
 
 # Strategies
 GET  /api/v1/strategies
@@ -224,16 +243,19 @@ POST /api/v1/notifications/alert
 ```python
 import requests
 
+API_KEY = "replace-with-api-auth-token"
+headers = {"X-API-Key": API_KEY}
+
 # Get portfolio overview
-response = requests.get('http://localhost:8000/api/v1/portfolio/overview')
+response = requests.get('http://localhost:8000/api/v1/portfolio/overview', headers=headers)
 portfolio = response.json()
 
 # Start trading
-response = requests.post('http://localhost:8000/api/v1/trading/start')
+response = requests.post('http://localhost:8000/api/v1/trading/start', headers=headers)
 result = response.json()
 
 # Get market data
-response = requests.get('http://localhost:8000/api/v1/market/data')
+response = requests.get('http://localhost:8000/api/v1/market/data', headers=headers)
 market_data = response.json()
 ```
 
@@ -295,6 +317,7 @@ EMAIL_HOST=smtp.gmail.com
 EMAIL_PORT=587
 EMAIL_USER=your_email@gmail.com
 EMAIL_PASSWORD=your_app_password
+EMAIL_TO=ops@example.com,alerts@example.com
 ```
 
 ### Alert Types

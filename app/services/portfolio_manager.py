@@ -4,6 +4,7 @@ Portfolio management system for tracking positions and performance
 import logging
 from typing import Dict, List, Optional, Any
 from datetime import datetime
+import numpy as np
 from app.core.database import SessionLocal
 from app.core.config import settings
 from app.services.okx_client import OkxClient
@@ -26,6 +27,8 @@ class PortfolioManager:
         self.performance_metrics = {}
         self.initialized = False
         self.okx_client = okx_client
+        self._last_snapshot_at: Optional[datetime] = None
+        self._snapshot_interval = settings.PORTFOLIO_SNAPSHOT_INTERVAL
         
         logger.info("Portfolio manager initialized")
     
@@ -39,6 +42,9 @@ class PortfolioManager:
             
             # Load existing positions
             await self._load_positions()
+
+            # Record an initial snapshot so the dashboard has data
+            await self._record_snapshot(force=True)
             
             logger.info("Portfolio manager initialized successfully")
             self.initialized = True
@@ -413,11 +419,59 @@ class PortfolioManager:
             
             # Update portfolio in database
             await self._update_portfolio_in_db()
+
+            # Record periodic snapshots for performance tracking
+            await self._record_snapshot_if_due()
             
             logger.info(f"Portfolio updated: Total Value: {self.total_value:.2f}, Unrealized P&L: {total_unrealized_pnl:.2f}")
             
         except Exception as e:
             logger.error(f"Error updating portfolio: {e}")
+
+    async def _record_snapshot_if_due(self):
+        """Record a portfolio snapshot based on the configured interval"""
+        now = datetime.utcnow()
+        if self._last_snapshot_at is None:
+            await self._record_snapshot(force=True)
+            return
+        elapsed = (now - self._last_snapshot_at).total_seconds()
+        if elapsed >= self._snapshot_interval:
+            await self._record_snapshot(force=True)
+
+    async def _record_snapshot(self, force: bool = False):
+        """Persist a portfolio snapshot"""
+        if not self.portfolio_id:
+            return
+        if not force:
+            return
+        try:
+            db = SessionLocal()
+            invested_amount = sum(pos["quantity"] * pos["current_price"] for pos in self.positions.values())
+            total_pnl = self.total_realized_pnl + sum(pos["unrealized_pnl"] for pos in self.positions.values())
+            total_pnl_percentage = 0.0
+            if self.initial_capital > 0:
+                total_pnl_percentage = ((self.total_value - self.initial_capital) / self.initial_capital) * 100
+            snapshot_metrics = self._calculate_snapshot_metrics(db, self.total_value)
+
+            snapshot = PortfolioSnapshot(
+                portfolio_id=self.portfolio_id,
+                total_value=self.total_value,
+                cash_balance=self.cash_balance,
+                invested_amount=invested_amount,
+                total_pnl=total_pnl,
+                total_pnl_percentage=total_pnl_percentage,
+                daily_return=snapshot_metrics["daily_return"],
+                weekly_return=snapshot_metrics["weekly_return"],
+                monthly_return=snapshot_metrics["monthly_return"],
+                sharpe_ratio=snapshot_metrics["sharpe_ratio"],
+                max_drawdown=snapshot_metrics["max_drawdown"]
+            )
+            db.add(snapshot)
+            db.commit()
+            db.close()
+            self._last_snapshot_at = datetime.utcnow()
+        except Exception as e:
+            logger.error(f"Error recording portfolio snapshot: {e}")
     
     async def _update_portfolio_in_db(self):
         """Update portfolio in database"""
@@ -462,15 +516,18 @@ class PortfolioManager:
             # Calculate returns
             total_return = (self.total_value - self.initial_capital) / self.initial_capital * 100 if self.initial_capital > 0 else 0.0
             
-            # Calculate Sharpe ratio (simplified)
-            sharpe_ratio = self._calculate_sharpe_ratio()
-            
-            # Calculate max drawdown
-            max_drawdown = self._calculate_max_drawdown()
-            
             db = SessionLocal()
             num_trades = db.query(Trade).filter(Trade.portfolio_id == self.portfolio_id).count()
+            recent_snapshots = db.query(PortfolioSnapshot).filter(
+                PortfolioSnapshot.portfolio_id == self.portfolio_id
+            ).order_by(PortfolioSnapshot.timestamp.asc()).limit(1000).all()
             db.close()
+            history_values = [float(s.total_value) for s in recent_snapshots if s.total_value is not None]
+            if self.total_value > 0 and (not history_values or history_values[-1] != float(self.total_value)):
+                history_values.append(float(self.total_value))
+
+            sharpe_ratio = self._calculate_sharpe_ratio(history_values)
+            max_drawdown = self._calculate_max_drawdown(history_values)
 
             metrics = {
                 "total_value": self.total_value,
@@ -492,27 +549,91 @@ class PortfolioManager:
             logger.error(f"Error calculating performance metrics: {e}")
             return {}
     
-    def _calculate_sharpe_ratio(self) -> float:
-        """Calculate Sharpe ratio (simplified)"""
+    def _calculate_sharpe_ratio(self, equity_curve: List[float]) -> float:
+        """Calculate annualized Sharpe ratio from equity curve returns."""
         try:
-            # Simplified Sharpe ratio calculation
-            # In reality, this would use historical returns
-            return 1.2  # Simulated Sharpe ratio
-            
+            if len(equity_curve) < 3:
+                return 0.0
+            returns = []
+            for i in range(1, len(equity_curve)):
+                prev_value = equity_curve[i - 1]
+                curr_value = equity_curve[i]
+                if prev_value > 0:
+                    returns.append((curr_value - prev_value) / prev_value)
+            if len(returns) < 2:
+                return 0.0
+            returns_arr = np.array(returns, dtype=float)
+            std = returns_arr.std(ddof=1)
+            if std <= 1e-12:
+                return 0.0
+            sharpe = (returns_arr.mean() / std) * np.sqrt(365.0)
+            return float(round(sharpe, 4))
         except Exception as e:
             logger.error(f"Error calculating Sharpe ratio: {e}")
             return 0.0
     
-    def _calculate_max_drawdown(self) -> float:
-        """Calculate maximum drawdown (simplified)"""
+    def _calculate_max_drawdown(self, equity_curve: List[float]) -> float:
+        """Calculate maximum drawdown (%) from equity curve."""
         try:
-            # Simplified max drawdown calculation
-            # In reality, this would track historical peak values
-            return 0.05  # Simulated 5% max drawdown
-            
+            if not equity_curve:
+                return 0.0
+            peak = equity_curve[0]
+            max_drawdown = 0.0
+            for value in equity_curve:
+                if value > peak:
+                    peak = value
+                if peak > 0:
+                    drawdown = (peak - value) / peak
+                    if drawdown > max_drawdown:
+                        max_drawdown = drawdown
+            return float(round(max_drawdown * 100.0, 4))
         except Exception as e:
             logger.error(f"Error calculating max drawdown: {e}")
             return 0.0
+
+    def _calculate_snapshot_metrics(self, db, current_total_value: float) -> Dict[str, float]:
+        """Calculate period returns and performance metrics for a new snapshot."""
+        snapshots = db.query(PortfolioSnapshot).filter(
+            PortfolioSnapshot.portfolio_id == self.portfolio_id
+        ).order_by(PortfolioSnapshot.timestamp.asc()).limit(1000).all()
+
+        history_values = [float(s.total_value) for s in snapshots if s.total_value is not None]
+        if current_total_value > 0 and (not history_values or history_values[-1] != float(current_total_value)):
+            history_values.append(float(current_total_value))
+
+        now = datetime.utcnow()
+        daily_return = self._calculate_period_return(snapshots, current_total_value, now, 1)
+        weekly_return = self._calculate_period_return(snapshots, current_total_value, now, 7)
+        monthly_return = self._calculate_period_return(snapshots, current_total_value, now, 30)
+
+        return {
+            "daily_return": daily_return,
+            "weekly_return": weekly_return,
+            "monthly_return": monthly_return,
+            "sharpe_ratio": self._calculate_sharpe_ratio(history_values),
+            "max_drawdown": self._calculate_max_drawdown(history_values),
+        }
+
+    def _calculate_period_return(self, snapshots: List[PortfolioSnapshot], current_value: float, now: datetime, period_days: int) -> float:
+        """Calculate return (%) since the most recent snapshot older than period_days."""
+        if current_value <= 0:
+            return 0.0
+
+        cutoff = now.timestamp() - (period_days * 86400)
+        base_snapshot = None
+        for snap in reversed(snapshots):
+            if not snap.timestamp or not snap.total_value or snap.total_value <= 0:
+                continue
+            snap_dt = snap.timestamp.replace(tzinfo=None) if snap.timestamp.tzinfo else snap.timestamp
+            if snap_dt.timestamp() <= cutoff:
+                base_snapshot = snap
+                break
+        if base_snapshot is None and snapshots:
+            base_snapshot = snapshots[-1]
+        if base_snapshot is None or not base_snapshot.total_value or base_snapshot.total_value <= 0:
+            return 0.0
+        period_return = ((current_value - float(base_snapshot.total_value)) / float(base_snapshot.total_value)) * 100.0
+        return float(round(period_return, 4))
     
     async def get_active_positions(self) -> List[Dict[str, Any]]:
         """Get all active positions"""
@@ -572,4 +693,28 @@ class PortfolioManager:
             
         except Exception as e:
             logger.error(f"Error getting trading history: {e}")
+            return []
+
+    async def get_performance_history(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get portfolio performance history"""
+        try:
+            db = SessionLocal()
+            snapshots = db.query(PortfolioSnapshot).filter(
+                PortfolioSnapshot.portfolio_id == self.portfolio_id
+            ).order_by(PortfolioSnapshot.timestamp.desc()).limit(limit).all()
+            db.close()
+
+            history = []
+            for snap in reversed(snapshots):
+                history.append({
+                    "timestamp": snap.timestamp.isoformat() if snap.timestamp else None,
+                    "total_value": snap.total_value,
+                    "cash_balance": snap.cash_balance,
+                    "invested_amount": snap.invested_amount,
+                    "total_pnl": snap.total_pnl,
+                    "total_pnl_percentage": snap.total_pnl_percentage
+                })
+            return history
+        except Exception as e:
+            logger.error(f"Error getting performance history: {e}")
             return []

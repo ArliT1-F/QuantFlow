@@ -102,34 +102,34 @@
         <div class="row">
             <!-- Sidebar -->
             <div class="col-md-2 sidebar">
-                <h4 class="mb-4"><i class="fas fa-robot"></i> Trading Bot</h4>
+                <h4 class="mb-4"><i class="fas fa-robot"></i> <span data-i18n="sidebar_title">Trading Bot</span></h4>
                 <nav class="nav flex-column">
-                    <a class="nav-link active" href="#" onclick="showSection('dashboard')">
-                        <i class="fas fa-tachometer-alt"></i> Dashboard
+                    <a class="nav-link active" href="#" onclick="showSection('dashboard', this); return false;" data-bs-toggle="tooltip" data-bs-placement="right" title="Overview of system status">
+                        <i class="fas fa-tachometer-alt"></i> <span data-i18n="nav_dashboard">Dashboard</span>
                     </a>
-                    <a class="nav-link" href="#" onclick="showSection('portfolio')">
-                        <i class="fas fa-briefcase"></i> Portfolio
+                    <a class="nav-link" href="#" onclick="showSection('portfolio', this); return false;" data-bs-toggle="tooltip" data-bs-placement="right" title="Portfolio summary and metrics">
+                        <i class="fas fa-briefcase"></i> <span data-i18n="nav_portfolio">Portfolio</span>
                     </a>
-                    <a class="nav-link" href="#" href="#" onclick="showSection('positions')">
-                        <i class="fas fa-chart-line"></i> Positions
+                    <a class="nav-link" href="#" onclick="showSection('positions', this); return false;" data-bs-toggle="tooltip" data-bs-placement="right" title="Open positions and P&L">
+                        <i class="fas fa-chart-line"></i> <span data-i18n="nav_positions">Positions</span>
                     </a>
-                    <a class="nav-link" href="#" onclick="showSection('trades')">
-                        <i class="fas fa-exchange-alt"></i> Trades
+                    <a class="nav-link" href="#" onclick="showSection('trades', this); return false;" data-bs-toggle="tooltip" data-bs-placement="right" title="Trade history and fills">
+                        <i class="fas fa-exchange-alt"></i> <span data-i18n="nav_trades">Trades</span>
                     </a>
-                    <a class="nav-link" href="#" onclick="showSection('strategies')">
-                        <i class="fas fa-cogs"></i> Strategies
+                    <a class="nav-link" href="#" onclick="showSection('strategies', this); return false;" data-bs-toggle="tooltip" data-bs-placement="right" title="Strategy status and performance">
+                        <i class="fas fa-cogs"></i> <span data-i18n="nav_strategies">Strategies</span>
                     </a>
-                    <a class="nav-link" href="#" onclick="showSection('backtest')">
-                        <i class="fas fa-flask"></i> Backtest
+                    <a class="nav-link" href="#" onclick="showSection('backtest', this); return false;" data-bs-toggle="tooltip" data-bs-placement="right" title="Run historical simulations">
+                        <i class="fas fa-flask"></i> <span data-i18n="nav_backtest">Backtest</span>
                     </a>
-                    <a class="nav-link" href="#" onclick="showSection('risk')">
-                        <i class="fas fa-shield-alt"></i> Risk Management
+                    <a class="nav-link" href="#" onclick="showSection('risk', this); return false;" data-bs-toggle="tooltip" data-bs-placement="right" title="Risk limits and daily metrics">
+                        <i class="fas fa-shield-alt"></i> <span data-i18n="nav_risk">Risk Management</span>
                     </a>
-                    <a class="nav-link" href="#" onclick="showSection('market')">
-                        <i class="fas fa-chart-bar"></i> Market Data
+                    <a class="nav-link" href="#" onclick="showSection('market', this); return false;" data-bs-toggle="tooltip" data-bs-placement="right" title="Latest market prices">
+                        <i class="fas fa-chart-bar"></i> <span data-i18n="nav_market">Market Data</span>
                     </a>
-                    <a class="nav-link" href="#" onclick="showSection('settings')">
-                        <i class="fas fa-cog"></i> Settings
+                    <a class="nav-link" href="#" onclick="showSection('settings', this); return false;" data-bs-toggle="tooltip" data-bs-placement="right" title="Configuration and notifications">
+                        <i class="fas fa-cog"></i> <span data-i18n="nav_settings">Settings</span>
                     </a>
                 </nav>
             </div>
@@ -142,10 +142,16 @@
                         <div class="container">
                             <div class="d-flex align-items-center justify-content-between flex-wrap">
                                 <div>
-                                    <h1><i class="fas fa-robot"></i> QuantFlow Paper Trading</h1>
-                                    <p class="lead mb-0">Real-time monitoring and control of your automated trading system</p>
+                                    <h1><i class="fas fa-robot"></i> <span data-i18n="app_title">QuantFlow Paper Trading</span></h1>
+                                    <p class="lead mb-0" data-i18n="app_subtitle">Real-time monitoring and control of your automated trading system</p>
                                 </div>
-                                <div id="venue-chip" class="badge bg-secondary fs-6 px-3 py-2"></div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div id="venue-chip" class="badge bg-secondary fs-6 px-3 py-2"></div>
+                                    <select id="language-select" class="form-select form-select-sm" style="width: 150px;">
+                                        <option value="en">English</option>
+                                        <option value="sq">Shqip</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -156,7 +162,7 @@
                             <div class="metric-card">
                                 <div class="d-flex justify-content-between align-items-center">
                                     <div>
-                                        <div class="metric-label">Trading Status</div>
+                                        <div class="metric-label" data-i18n="trading_status">Trading Status</div>
                                         <div class="metric-value" id="trading-status">
                                             <span class="status-indicator status-stopped"></span>Stopped
                                         </div>
@@ -169,7 +175,7 @@
                             <div class="metric-card">
                                 <div class="d-flex justify-content-between align-items-center">
                                     <div>
-                                        <div class="metric-label">Portfolio Value</div>
+                                        <div class="metric-label" data-i18n="portfolio_value">Portfolio Value</div>
                                         <div class="metric-value" id="portfolio-value">$0.00</div>
                                     </div>
                                     <i class="fas fa-dollar-sign fa-2x text-success"></i>
@@ -180,7 +186,7 @@
                             <div class="metric-card">
                                 <div class="d-flex justify-content-between align-items-center">
                                     <div>
-                                        <div class="metric-label">Total P&L</div>
+                                        <div class="metric-label" data-i18n="total_pnl">Total P&amp;L</div>
                                         <div class="metric-value" id="total-pnl">$0.00</div>
                                     </div>
                                     <i class="fas fa-chart-line fa-2x text-info"></i>
@@ -191,7 +197,7 @@
                             <div class="metric-card">
                                 <div class="d-flex justify-content-between align-items-center">
                                     <div>
-                                        <div class="metric-label">Active Positions</div>
+                                        <div class="metric-label" data-i18n="active_positions">Active Positions</div>
                                         <div class="metric-value" id="active-positions">0</div>
                                     </div>
                                     <i class="fas fa-briefcase fa-2x text-warning"></i>
@@ -203,18 +209,18 @@
                         <div class="col-12">
                             <div class="metric-card">
                                 <div class="d-flex justify-content-between align-items-center">
-                                    <h5 class="mb-0">Recent Signals & Events</h5>
+                                    <h5 class="mb-0" data-i18n="recent_events">Recent Signals &amp; Events</h5>
                                     <span class="text-muted" id="events-count"></span>
                                 </div>
                                 <div class="table-responsive mt-2">
                                     <table class="table table-sm">
                                         <thead class="table-light">
                                             <tr>
-                                                <th>Time</th>
-                                                <th>Type</th>
-                                                <th>Symbol</th>
-                                                <th>Strategy</th>
-                                                <th>Message</th>
+                                                <th data-i18n="time">Time</th>
+                                                <th data-i18n="type">Type</th>
+                                                <th data-i18n="symbol">Symbol</th>
+                                                <th data-i18n="strategy">Strategy</th>
+                                                <th data-i18n="message">Message</th>
                                             </tr>
                                         </thead>
                                         <tbody id="events-table">
@@ -230,17 +236,17 @@
                     <div class="row mb-4">
                         <div class="col-12">
                             <div class="d-flex gap-2">
-                                <button class="btn btn-success btn-custom" onclick="startTrading()">
-                                    <i class="fas fa-play"></i> Start Trading
+                                <button class="btn btn-success btn-custom" onclick="startTrading()" data-bs-toggle="tooltip" data-bs-placement="top" title="Start the trading engine">
+                                    <i class="fas fa-play"></i> <span data-i18n="start_trading">Start Trading</span>
                                 </button>
-                                <button class="btn btn-danger btn-custom" onclick="stopTrading()">
-                                    <i class="fas fa-stop"></i> Stop Trading
+                                <button class="btn btn-danger btn-custom" onclick="stopTrading()" data-bs-toggle="tooltip" data-bs-placement="top" title="Stop the trading engine">
+                                    <i class="fas fa-stop"></i> <span data-i18n="stop_trading">Stop Trading</span>
                                 </button>
-                                <button class="btn btn-info btn-custom" onclick="refreshData()">
-                                    <i class="fas fa-sync"></i> Refresh Data
+                                <button class="btn btn-info btn-custom" onclick="refreshData()" data-bs-toggle="tooltip" data-bs-placement="top" title="Refresh dashboard data">
+                                    <i class="fas fa-sync"></i> <span data-i18n="refresh_data">Refresh Data</span>
                                 </button>
-                                <button class="btn btn-warning btn-custom" onclick="testNotification()">
-                                    <i class="fas fa-bell"></i> Test Alert
+                                <button class="btn btn-warning btn-custom" onclick="testNotification()" data-bs-toggle="tooltip" data-bs-placement="top" title="Send a test notification">
+                                    <i class="fas fa-bell"></i> <span data-i18n="test_alert">Test Alert</span>
                                 </button>
                             </div>
                         </div>
@@ -250,7 +256,7 @@
                     <div class="row">
                         <div class="col-md-6">
                             <div class="metric-card">
-                                <h5><i class="fas fa-chart-line"></i> Portfolio Performance</h5>
+                                <h5><i class="fas fa-chart-line"></i> <span data-i18n="portfolio_performance">Portfolio Performance</span></h5>
                                 <div class="chart-container">
                                     <canvas id="portfolioChart"></canvas>
                                 </div>
@@ -258,7 +264,7 @@
                         </div>
                         <div class="col-md-6">
                             <div class="metric-card">
-                                <h5><i class="fas fa-chart-pie"></i> Position Distribution</h5>
+                                <h5><i class="fas fa-chart-pie"></i> <span data-i18n="position_distribution">Position Distribution</span></h5>
                                 <div class="chart-container">
                                     <canvas id="positionChart"></canvas>
                                 </div>
@@ -270,18 +276,18 @@
                     <div class="row mt-4">
                         <div class="col-12">
                             <div class="metric-card">
-                                <h5><i class="fas fa-history"></i> Recent Trades</h5>
+                                <h5><i class="fas fa-history"></i> <span data-i18n="recent_trades">Recent Trades</span></h5>
                                 <div class="table-responsive">
                                     <table class="table table-hover">
                                         <thead class="table-dark">
                                             <tr>
-                                                <th>Time</th>
-                                                <th>Symbol</th>
-                                                <th>Action</th>
-                                                <th>Quantity</th>
-                                                <th>Price</th>
-                                                <th>Strategy</th>
-                                                <th>Status</th>
+                                                <th data-i18n="time">Time</th>
+                                                <th data-i18n="symbol">Symbol</th>
+                                                <th data-i18n="action">Action</th>
+                                                <th data-i18n="quantity">Quantity</th>
+                                                <th data-i18n="price">Price</th>
+                                                <th data-i18n="strategy">Strategy</th>
+                                                <th data-i18n="status">Status</th>
                                             </tr>
                                         </thead>
                                         <tbody id="recent-trades">
@@ -298,11 +304,11 @@
 
                 <!-- Portfolio Section -->
                 <div id="portfolio-section" class="content-section" style="display: none;">
-                    <h2><i class="fas fa-briefcase"></i> Portfolio Overview</h2>
+                    <h2><i class="fas fa-briefcase"></i> <span data-i18n="portfolio_overview">Portfolio Overview</span></h2>
                     <div class="row">
                         <div class="col-md-6">
                             <div class="metric-card">
-                                <h5>Performance Metrics</h5>
+                                <h5 data-i18n="performance_metrics">Performance Metrics</h5>
                                 <div id="portfolio-metrics">
                                     <p class="text-muted">Loading portfolio metrics...</p>
                                 </div>
@@ -310,7 +316,7 @@
                         </div>
                         <div class="col-md-6">
                             <div class="metric-card">
-                                <h5>Risk Metrics</h5>
+                                <h5 data-i18n="risk_metrics">Risk Metrics</h5>
                                 <div id="risk-metrics">
                                     <p class="text-muted">Loading risk metrics...</p>
                                 </div>
@@ -321,19 +327,19 @@
 
                 <!-- Positions Section -->
                 <div id="positions-section" class="content-section" style="display: none;">
-                    <h2><i class="fas fa-chart-line"></i> Active Positions</h2>
+                    <h2><i class="fas fa-chart-line"></i> <span data-i18n="active_positions_title">Active Positions</span></h2>
                     <div class="table-responsive">
                         <table class="table table-hover">
                             <thead class="table-dark">
                                 <tr>
-                                    <th>Symbol</th>
-                                    <th>Quantity</th>
-                                    <th>Avg Price</th>
-                                    <th>Current Price</th>
-                                    <th>Unrealized P&L</th>
-                                    <th>P&L %</th>
-                                    <th>Stop Loss</th>
-                                    <th>Take Profit</th>
+                                    <th data-i18n="symbol">Symbol</th>
+                                    <th data-i18n="quantity">Quantity</th>
+                                    <th data-i18n="avg_price">Avg Price</th>
+                                    <th data-i18n="current_price">Current Price</th>
+                                    <th data-i18n="unrealized_pnl">Unrealized P&amp;L</th>
+                                    <th data-i18n="pnl_percent">P&amp;L %</th>
+                                    <th data-i18n="stop_loss">Stop Loss</th>
+                                    <th data-i18n="take_profit">Take Profit</th>
                                 </tr>
                             </thead>
                             <tbody id="positions-table">
@@ -347,19 +353,19 @@
 
                 <!-- Trades Section -->
                 <div id="trades-section" class="content-section" style="display: none;">
-                    <h2><i class="fas fa-exchange-alt"></i> Trading History</h2>
+                    <h2><i class="fas fa-exchange-alt"></i> <span data-i18n="trading_history">Trading History</span></h2>
                     <div class="table-responsive">
                         <table class="table table-hover">
                             <thead class="table-dark">
                                 <tr>
-                                    <th>Time</th>
-                                    <th>Symbol</th>
-                                    <th>Action</th>
-                                    <th>Quantity</th>
-                                    <th>Price</th>
-                                    <th>Fees</th>
-                                    <th>Strategy</th>
-                                    <th>Status</th>
+                                    <th data-i18n="time">Time</th>
+                                    <th data-i18n="symbol">Symbol</th>
+                                    <th data-i18n="action">Action</th>
+                                    <th data-i18n="quantity">Quantity</th>
+                                    <th data-i18n="price">Price</th>
+                                    <th data-i18n="fees">Fees</th>
+                                    <th data-i18n="strategy">Strategy</th>
+                                    <th data-i18n="status">Status</th>
                                 </tr>
                             </thead>
                             <tbody id="trades-table">
@@ -373,7 +379,7 @@
 
                 <!-- Strategies Section -->
                 <div id="strategies-section" class="content-section" style="display: none;">
-                    <h2><i class="fas fa-cogs"></i> Trading Strategies</h2>
+                    <h2><i class="fas fa-cogs"></i> <span data-i18n="trading_strategies">Trading Strategies</span></h2>
                     <div id="strategies-list">
                         <p class="text-muted">Loading strategies...</p>
                     </div>
@@ -381,11 +387,11 @@
 
                 <!-- Risk Management Section -->
                 <div id="risk-section" class="content-section" style="display: none;">
-                    <h2><i class="fas fa-shield-alt"></i> Risk Management</h2>
+                    <h2><i class="fas fa-shield-alt"></i> <span data-i18n="risk_management">Risk Management</span></h2>
                     <div class="row">
                         <div class="col-md-6">
                             <div class="metric-card">
-                                <h5>Risk Limits</h5>
+                                <h5 data-i18n="risk_limits">Risk Limits</h5>
                                 <div id="risk-limits">
                                     <p class="text-muted">Loading risk limits...</p>
                                 </div>
@@ -393,7 +399,7 @@
                         </div>
                         <div class="col-md-6">
                             <div class="metric-card">
-                                <h5>Daily Metrics</h5>
+                                <h5 data-i18n="daily_metrics">Daily Metrics</h5>
                                 <div id="daily-risk-metrics">
                                     <p class="text-muted">Loading daily metrics...</p>
                                 </div>
@@ -404,21 +410,21 @@
 
                 <!-- Market Data Section -->
                 <div id="market-section" class="content-section" style="display: none;">
-                    <h2><i class="fas fa-chart-bar"></i> Coin Market Data</h2>
+                    <h2><i class="fas fa-chart-bar"></i> <span data-i18n="market_data">Coin Market Data</span></h2>
                     <div class="row">
                         <div class="col-12">
                             <div class="metric-card">
-                                <h5>Current Market Prices</h5>
+                                <h5 data-i18n="current_market_prices">Current Market Prices</h5>
                                 <div class="table-responsive">
                                     <table class="table table-hover">
                                         <thead class="table-dark">
                                             <tr>
-                                                <th>Symbol</th>
-                                                <th>Price</th>
-                                                <th>Change</th>
-                                                <th>Change %</th>
-                                                <th>Volume</th>
-                                                <th>Market Cap</th>
+                                                <th data-i18n="symbol">Symbol</th>
+                                                <th data-i18n="price">Price</th>
+                                                <th data-i18n="change">Change</th>
+                                                <th data-i18n="change_percent">Change %</th>
+                                                <th data-i18n="volume">Volume</th>
+                                                <th data-i18n="market_cap">Market Cap</th>
                                             </tr>
                                         </thead>
                                         <tbody id="market-data-table">
@@ -435,46 +441,46 @@
 
                 <!-- Backtest Section -->
                 <div id="backtest-section" class="content-section" style="display: none;">
-                    <h2><i class="fas fa-flask"></i> Backtest</h2>
+                    <h2><i class="fas fa-flask"></i> <span data-i18n="backtest">Backtest</span></h2>
                     <div class="row">
                         <div class="col-md-6">
                             <div class="metric-card">
-                                <h5>Run Backtest</h5>
+                                <h5 data-i18n="run_backtest">Run Backtest</h5>
                                 <form id="backtest-form">
                                     <div class="mb-3">
-                                        <label class="form-label">Symbols (comma-separated)</label>
+                                        <label class="form-label" data-i18n="bt_symbols">Symbols (comma-separated)</label>
                                         <input type="text" class="form-control" id="backtest-symbols" value="BTC-USD,ETH-USD,SOL-USD">
                                     </div>
                                     <div class="mb-3">
-                                        <label class="form-label">Days</label>
+                                        <label class="form-label" data-i18n="bt_days">Days</label>
                                         <input type="number" class="form-control" id="backtest-days" value="180" min="30" max="365">
                                     </div>
                                     <div class="mb-3">
-                                        <label class="form-label">Initial Capital</label>
+                                        <label class="form-label" data-i18n="bt_initial_capital">Initial Capital</label>
                                         <input type="number" class="form-control" id="backtest-capital" value="10000" min="100">
                                     </div>
                                     <div class="mb-3">
-                                        <label class="form-label">Strategies</label>
+                                        <label class="form-label" data-i18n="bt_strategies">Strategies</label>
                                         <div class="form-check">
                                             <input class="form-check-input" type="checkbox" value="momentum" id="bt-strategy-momentum" checked>
-                                            <label class="form-check-label" for="bt-strategy-momentum">Momentum</label>
+                                            <label class="form-check-label" for="bt-strategy-momentum" data-i18n="strategy_momentum">Momentum</label>
                                         </div>
                                         <div class="form-check">
                                             <input class="form-check-input" type="checkbox" value="mean_reversion" id="bt-strategy-mean" checked>
-                                            <label class="form-check-label" for="bt-strategy-mean">Mean Reversion</label>
+                                            <label class="form-check-label" for="bt-strategy-mean" data-i18n="strategy_mean_reversion">Mean Reversion</label>
                                         </div>
                                         <div class="form-check">
                                             <input class="form-check-input" type="checkbox" value="technical_analysis" id="bt-strategy-tech" checked>
-                                            <label class="form-check-label" for="bt-strategy-tech">Technical Analysis</label>
+                                            <label class="form-check-label" for="bt-strategy-tech" data-i18n="strategy_technical">Technical Analysis</label>
                                         </div>
                                     </div>
-                                    <button type="submit" class="btn btn-primary">Run Backtest</button>
+                                    <button type="submit" class="btn btn-primary" data-i18n="run_backtest_button">Run Backtest</button>
                                 </form>
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="metric-card">
-                                <h5>Results</h5>
+                                <h5 data-i18n="results">Results</h5>
                                 <div id="backtest-results" class="text-muted">Run a backtest to see results.</div>
                             </div>
                         </div>
@@ -483,49 +489,53 @@
 
                 <!-- Settings Section -->
                 <div id="settings-section" class="content-section" style="display: none;">
-                    <h2><i class="fas fa-cog"></i> Settings</h2>
+                    <h2><i class="fas fa-cog"></i> <span data-i18n="settings">Settings</span></h2>
                     <div class="row">
                         <div class="col-md-6">
                             <div class="metric-card">
-                                <h5>Trading Configuration</h5>
+                                <h5 data-i18n="trading_configuration">Trading Configuration</h5>
                                 <form id="trading-config-form">
                                     <div class="mb-3">
-                                        <label class="form-label">Max Position Size (%)</label>
+                                        <label class="form-label" data-i18n="max_position_size">Max Position Size (%)</label>
                                         <input type="number" class="form-control" id="max-position-size" value="10" min="1" max="100">
                                     </div>
                                     <div class="mb-3">
-                                        <label class="form-label">Stop Loss (%)</label>
+                                        <label class="form-label" data-i18n="stop_loss_percent">Stop Loss (%)</label>
                                         <input type="number" class="form-control" id="stop-loss" value="5" min="1" max="50">
                                     </div>
                                     <div class="mb-3">
-                                        <label class="form-label">Take Profit (%)</label>
+                                        <label class="form-label" data-i18n="take_profit_percent">Take Profit (%)</label>
                                         <input type="number" class="form-control" id="take-profit" value="15" min="1" max="100">
                                     </div>
-                                    <button type="submit" class="btn btn-primary">Save Settings</button>
+                                    <button type="submit" class="btn btn-primary" data-i18n="save_settings">Save Settings</button>
                                 </form>
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="metric-card">
-                                <h5>Notification Settings</h5>
+                                <h5 data-i18n="notification_settings">Notification Settings</h5>
                                 <div class="form-check">
                                     <input class="form-check-input" type="checkbox" id="email-notifications" checked>
-                                    <label class="form-check-label" for="email-notifications">
+                                    <label class="form-check-label" for="email-notifications" data-i18n="email_notifications">
                                         Email Notifications
                                     </label>
                                 </div>
                                 <div class="form-check">
                                     <input class="form-check-input" type="checkbox" id="trade-notifications" checked>
-                                    <label class="form-check-label" for="trade-notifications">
+                                    <label class="form-check-label" for="trade-notifications" data-i18n="trade_notifications">
                                         Trade Notifications
                                     </label>
                                 </div>
                                 <div class="form-check">
                                     <input class="form-check-input" type="checkbox" id="risk-alerts" checked>
-                                    <label class="form-check-label" for="risk-alerts">
+                                    <label class="form-check-label" for="risk-alerts" data-i18n="risk_alerts">
                                         Risk Alerts
                                     </label>
                                 </div>
+                                <hr>
+                                <label class="form-label mt-2" data-i18n="api_key_label">API Key</label>
+                                <input type="password" class="form-control mb-2" id="api-key-input">
+                                <button type="button" class="btn btn-outline-secondary btn-sm" id="save-api-key" data-i18n="save_api_key">Save API Key</button>
                             </div>
                         </div>
                     </div>
@@ -539,10 +549,178 @@
         // Global variables
         let portfolioChart, positionChart;
         let refreshInterval;
+        let currentLanguage = 'en';
+        const API_KEY_STORAGE_KEY = 'qf_api_key';
+
+        const translations = {
+            en: {
+                app_title: 'QuantFlow Paper Trading',
+                app_subtitle: 'Real-time monitoring and control of your automated trading system',
+                sidebar_title: 'Trading Bot',
+                nav_dashboard: 'Dashboard',
+                nav_portfolio: 'Portfolio',
+                nav_positions: 'Positions',
+                nav_trades: 'Trades',
+                nav_strategies: 'Strategies',
+                nav_backtest: 'Backtest',
+                nav_risk: 'Risk Management',
+                nav_market: 'Market Data',
+                nav_settings: 'Settings',
+                trading_status: 'Trading Status',
+                portfolio_value: 'Portfolio Value',
+                total_pnl: 'Total P&L',
+                active_positions: 'Active Positions',
+                recent_events: 'Recent Signals & Events',
+                time: 'Time',
+                type: 'Type',
+                symbol: 'Symbol',
+                strategy: 'Strategy',
+                message: 'Message',
+                start_trading: 'Start Trading',
+                stop_trading: 'Stop Trading',
+                refresh_data: 'Refresh Data',
+                test_alert: 'Test Alert',
+                portfolio_performance: 'Portfolio Performance',
+                position_distribution: 'Position Distribution',
+                recent_trades: 'Recent Trades',
+                action: 'Action',
+                quantity: 'Quantity',
+                price: 'Price',
+                status: 'Status',
+                portfolio_overview: 'Portfolio Overview',
+                performance_metrics: 'Performance Metrics',
+                risk_metrics: 'Risk Metrics',
+                active_positions_title: 'Active Positions',
+                avg_price: 'Avg Price',
+                current_price: 'Current Price',
+                unrealized_pnl: 'Unrealized P&L',
+                pnl_percent: 'P&L %',
+                stop_loss: 'Stop Loss',
+                take_profit: 'Take Profit',
+                trading_history: 'Trading History',
+                fees: 'Fees',
+                trading_strategies: 'Trading Strategies',
+                risk_management: 'Risk Management',
+                risk_limits: 'Risk Limits',
+                daily_metrics: 'Daily Metrics',
+                market_data: 'Coin Market Data',
+                current_market_prices: 'Current Market Prices',
+                change: 'Change',
+                change_percent: 'Change %',
+                volume: 'Volume',
+                market_cap: 'Market Cap',
+                backtest: 'Backtest',
+                run_backtest: 'Run Backtest',
+                bt_symbols: 'Symbols (comma-separated)',
+                bt_days: 'Days',
+                bt_initial_capital: 'Initial Capital',
+                bt_strategies: 'Strategies',
+                strategy_momentum: 'Momentum',
+                strategy_mean_reversion: 'Mean Reversion',
+                strategy_technical: 'Technical Analysis',
+                run_backtest_button: 'Run Backtest',
+                results: 'Results',
+                settings: 'Settings',
+                trading_configuration: 'Trading Configuration',
+                max_position_size: 'Max Position Size (%)',
+                stop_loss_percent: 'Stop Loss (%)',
+                take_profit_percent: 'Take Profit (%)',
+                save_settings: 'Save Settings',
+                notification_settings: 'Notification Settings',
+                email_notifications: 'Email Notifications',
+                trade_notifications: 'Trade Notifications',
+                risk_alerts: 'Risk Alerts',
+                api_key_label: 'API Key',
+                save_api_key: 'Save API Key'
+            },
+            sq: {
+                app_title: 'QuantFlow Tregtim në Letër',
+                app_subtitle: 'Monitorim dhe kontroll në kohë reale të sistemit të trade-it automatik',
+                sidebar_title: 'Trading Robot',
+                nav_dashboard: 'Paneli',
+                nav_portfolio: 'Portofoli',
+                nav_positions: 'Pozicionet',
+                nav_trades: 'Tregtimet',
+                nav_strategies: 'Strategjitë',
+                nav_backtest: 'Simulim backtest',
+                nav_risk: 'Menaxhim Rreziku',
+                nav_market: 'Të Dhëna Tregu',
+                nav_settings: 'Cilësimet',
+                trading_status: 'Statusi i Trade-it',
+                portfolio_value: 'Vlera e Portofolit',
+                total_pnl: 'Fitim/Humbje Totale',
+                active_positions: 'Pozicione Aktive',
+                recent_events: 'Sinjale & Ngjarje të Fundit',
+                time: 'Koha',
+                type: 'Lloji',
+                symbol: 'Simboli',
+                strategy: 'Strategjia',
+                message: 'Mesazhi',
+                start_trading: 'Fillo Tregtimin',
+                stop_trading: 'Ndal Tregtimin',
+                refresh_data: 'Rifresko të Dhënat',
+                test_alert: 'Testo Njoftim',
+                portfolio_performance: 'Performanca e Portofolit',
+                position_distribution: 'Shpërndarja e Pozicioneve',
+                recent_trades: 'Tregtimet e Fundit',
+                action: 'Veprimi',
+                quantity: 'Sasia',
+                price: 'Çmimi',
+                status: 'Statusi',
+                portfolio_overview: 'Përmbledhje e Portofolit',
+                performance_metrics: 'Metrika të Performancës',
+                risk_metrics: 'Metrika të Rrezikut',
+                active_positions_title: 'Pozicione Aktive',
+                avg_price: 'Çmimi Mesatar',
+                current_price: 'Çmimi Aktual',
+                unrealized_pnl: 'Fitim/Humbje e Parealizuar',
+                pnl_percent: '% Fitim/Humbje',
+                stop_loss: 'Ndalim Humbjeje',
+                take_profit: 'Marrje Fitimi',
+                trading_history: 'Historia e Tregtimit',
+                fees: 'Tarifa',
+                trading_strategies: 'Strategji Tregtimi',
+                risk_management: 'Menaxhim Rreziku',
+                risk_limits: 'Kufijtë e Rrezikut',
+                daily_metrics: 'Metrika Ditore',
+                market_data: 'Të Dhëna të Tregut të Monedhave',
+                current_market_prices: 'Çmime Aktualë të Tregut',
+                change: 'Ndryshimi',
+                change_percent: '% Ndryshimi',
+                volume: 'Vëllimi',
+                market_cap: 'Kapitalizimi',
+                backtest: 'Testim i prapambetur',
+                run_backtest: 'Kryej Testim',
+                bt_symbols: 'Simbole (të ndara me presje)',
+                bt_days: 'Ditë',
+                bt_initial_capital: 'Kapitali Fillestar',
+                bt_strategies: 'Strategjitë',
+                strategy_momentum: 'Momentum',
+                strategy_mean_reversion: 'Kthim te Mesatarja',
+                strategy_technical: 'Analizë Teknike',
+                run_backtest_button: 'Kryej Testim',
+                results: 'Rezultate',
+                settings: 'Cilësimet',
+                trading_configuration: 'Konfigurimi i Tregtimit',
+                max_position_size: 'Madhësia Maks e Pozicionit (%)',
+                stop_loss_percent: 'Ndalim Humbjeje (%)',
+                take_profit_percent: 'Marrje Fitimi (%)',
+                save_settings: 'Ruaj Cilësimet',
+                notification_settings: 'Cilësimet e Njoftimeve',
+                email_notifications: 'Njoftime me Email',
+                trade_notifications: 'Njoftime për Tregtime',
+                risk_alerts: 'Njoftime Rreziku',
+                api_key_label: 'Çelësi API',
+                save_api_key: 'Ruaj Çelësin API'
+            }
+        };
 
         // Initialize dashboard
         document.addEventListener('DOMContentLoaded', function() {
             initializeCharts();
+            initializeLanguage();
+            initializeTooltips();
+            initializeApiKeySettings();
             refreshData();
             startAutoRefresh();
 
@@ -553,7 +731,63 @@
                     runBacktest();
                 });
             }
+
+            const tradingConfigForm = document.getElementById('trading-config-form');
+            if (tradingConfigForm) {
+                tradingConfigForm.addEventListener('submit', function(event) {
+                    event.preventDefault();
+                    saveTradingSettings();
+                });
+            }
+
+            loadTradingSettings();
         });
+
+        async function apiFetch(url, options = {}) {
+            const headers = Object.assign({}, options.headers || {});
+            const apiKey = localStorage.getItem(API_KEY_STORAGE_KEY);
+            if (apiKey) {
+                headers['X-API-Key'] = apiKey;
+            }
+
+            const response = await fetch(url, Object.assign({}, options, { headers }));
+            if (!response.ok) {
+                let message = `HTTP ${response.status}`;
+                try {
+                    const payload = await response.json();
+                    if (payload && payload.detail) {
+                        message = payload.detail;
+                    }
+                } catch (error) {
+                    // Ignore parsing errors and keep HTTP fallback message.
+                }
+                throw new Error(message);
+            }
+            return response;
+        }
+
+        function initializeApiKeySettings() {
+            const input = document.getElementById('api-key-input');
+            const button = document.getElementById('save-api-key');
+            if (!input || !button) return;
+
+            const existing = localStorage.getItem(API_KEY_STORAGE_KEY);
+            if (existing) {
+                input.value = existing;
+            }
+
+            button.addEventListener('click', function() {
+                const value = input.value.trim();
+                if (!value) {
+                    localStorage.removeItem(API_KEY_STORAGE_KEY);
+                    showAlert('API key removed from browser storage.', 'warning');
+                    return;
+                }
+                localStorage.setItem(API_KEY_STORAGE_KEY, value);
+                showAlert('API key saved. Refreshing dashboard data...', 'success');
+                refreshData();
+            });
+        }
 
         // Initialize charts
         function initializeCharts() {
@@ -607,8 +841,47 @@
             });
         }
 
+        function initializeLanguage() {
+            const select = document.getElementById('language-select');
+            if (!select) return;
+            select.addEventListener('change', () => {
+                setLanguage(select.value);
+            });
+            setLanguage(select.value || 'en');
+        }
+
+        function setLanguage(lang) {
+            currentLanguage = translations[lang] ? lang : 'en';
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                const value = translations[currentLanguage][key];
+                if (typeof value === 'string') {
+                    el.textContent = value;
+                }
+            });
+            updateDynamicStatusLabels();
+        }
+
+        function updateDynamicStatusLabels() {
+            const statusElement = document.getElementById('trading-status');
+            if (!statusElement) return;
+            const isRunning = statusElement.textContent.toLowerCase().includes('running') ||
+                statusElement.textContent.toLowerCase().includes('në punë');
+            const runningText = currentLanguage === 'sq' ? 'Në punë' : 'Running';
+            const stoppedText = currentLanguage === 'sq' ? 'Ndalur' : 'Stopped';
+            const className = isRunning ? 'status-indicator status-running' : 'status-indicator status-stopped';
+            statusElement.innerHTML = `<span class="${className}"></span>${isRunning ? runningText : stoppedText}`;
+        }
+
+        function initializeTooltips() {
+            const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+        }
+
         // Show section
-        function showSection(sectionName) {
+        function showSection(sectionName, navLink) {
             // Hide all sections
             document.querySelectorAll('.content-section').forEach(section => {
                 section.style.display = 'none';
@@ -623,7 +896,9 @@
             document.getElementById(sectionName + '-section').style.display = 'block';
 
             // Add active class to clicked nav link
-            event.target.classList.add('active');
+            if (navLink) {
+                navLink.classList.add('active');
+            }
 
             // Load section data
             loadSectionData(sectionName);
@@ -655,6 +930,9 @@
                     break;
                 case 'backtest':
                     break;
+                case 'settings':
+                    loadTradingSettings();
+                    break;
             }
         }
 
@@ -664,6 +942,8 @@
                 await Promise.all([
                     loadTradingStatus(),
                     loadPortfolioOverview(),
+                    loadPortfolioPerformance(),
+                    loadPositionDistribution(),
                     loadRecentTrades(),
                     loadMarketData(),
                     loadEvents()
@@ -677,7 +957,7 @@
         // Load trading status
         async function loadTradingStatus() {
             try {
-                const response = await fetch('/api/v1/trading/status');
+                const response = await apiFetch('/api/v1/trading/status');
                 const data = await response.json();
                 
                 const statusElement = document.getElementById('trading-status');
@@ -685,10 +965,12 @@
                 
                 if (data.is_running) {
                     indicator.className = 'status-indicator status-running';
-                    statusElement.innerHTML = '<span class="status-indicator status-running"></span>Running';
+                    const runningText = currentLanguage === 'sq' ? 'Në punë' : 'Running';
+                    statusElement.innerHTML = `<span class="status-indicator status-running"></span>${runningText}`;
                 } else {
                     indicator.className = 'status-indicator status-stopped';
-                    statusElement.innerHTML = '<span class="status-indicator status-stopped"></span>Stopped';
+                    const stoppedText = currentLanguage === 'sq' ? 'Ndalur' : 'Stopped';
+                    statusElement.innerHTML = `<span class="status-indicator status-stopped"></span>${stoppedText}`;
                 }
 
                 const venueChip = document.getElementById('venue-chip');
@@ -708,7 +990,7 @@
 
         async function loadEvents() {
             try {
-                const response = await fetch('/api/v1/trading/events');
+                const response = await apiFetch('/api/v1/trading/events');
                 const data = await response.json();
                 const events = data.events || [];
                 const tbody = document.getElementById('events-table');
@@ -735,7 +1017,7 @@
         // Load portfolio overview
         async function loadPortfolioOverview() {
             try {
-                const response = await fetch('/api/v1/portfolio/overview');
+                const response = await apiFetch('/api/v1/portfolio/overview');
                 const data = await response.json();
                 
                 const metrics = data.portfolio_metrics;
@@ -755,10 +1037,64 @@
             }
         }
 
+        // Load portfolio performance chart
+        async function loadPortfolioPerformance() {
+            try {
+                const response = await apiFetch('/api/v1/portfolio/performance?limit=120');
+                const data = await response.json();
+                const performance = data.performance || [];
+
+                if (performance.length === 0) {
+                    portfolioChart.data.labels = [];
+                    portfolioChart.data.datasets[0].data = [];
+                    portfolioChart.update();
+                    return;
+                }
+
+                const labels = performance.map(point => {
+                    if (!point.timestamp) return '';
+                    const ts = new Date(point.timestamp);
+                    return ts.toLocaleString();
+                });
+                const values = performance.map(point => point.total_value);
+
+                portfolioChart.data.labels = labels;
+                portfolioChart.data.datasets[0].data = values;
+                portfolioChart.update();
+            } catch (error) {
+                console.error('Error loading portfolio performance:', error);
+            }
+        }
+
+        // Load position distribution chart
+        async function loadPositionDistribution() {
+            try {
+                const response = await apiFetch('/api/v1/portfolio/positions');
+                const data = await response.json();
+                const positions = data.positions || [];
+
+                if (positions.length === 0) {
+                    positionChart.data.labels = [];
+                    positionChart.data.datasets[0].data = [];
+                    positionChart.update();
+                    return;
+                }
+
+                const labels = positions.map(pos => pos.symbol);
+                const values = positions.map(pos => (pos.quantity * pos.current_price));
+
+                positionChart.data.labels = labels;
+                positionChart.data.datasets[0].data = values;
+                positionChart.update();
+            } catch (error) {
+                console.error('Error loading position distribution:', error);
+            }
+        }
+
         // Load recent trades
         async function loadRecentTrades() {
             try {
-                const response = await fetch('/api/v1/portfolio/trades?limit=10');
+                const response = await apiFetch('/api/v1/portfolio/trades?limit=10');
                 const data = await response.json();
                 
                 const tbody = document.getElementById('recent-trades');
@@ -788,7 +1124,7 @@
         // Load market data
         async function loadMarketData() {
             try {
-                const response = await fetch('/api/v1/market/data');
+                const response = await apiFetch('/api/v1/market/data');
                 const data = await response.json();
                 
                 const tbody = document.getElementById('market-data-table');
@@ -828,7 +1164,7 @@
                 if (document.getElementById('bt-strategy-mean').checked) strategies.push('mean_reversion');
                 if (document.getElementById('bt-strategy-tech').checked) strategies.push('technical_analysis');
 
-                const response = await fetch('/api/v1/backtest/run', {
+                const response = await apiFetch('/api/v1/backtest/run', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -880,7 +1216,7 @@
         // Load portfolio data
         async function loadPortfolioData() {
             try {
-                const response = await fetch('/api/v1/portfolio/overview');
+                const response = await apiFetch('/api/v1/portfolio/overview');
                 const data = await response.json();
                 
                 const metrics = data.portfolio_metrics;
@@ -906,7 +1242,7 @@
         // Load positions data
         async function loadPositionsData() {
             try {
-                const response = await fetch('/api/v1/portfolio/positions');
+                const response = await apiFetch('/api/v1/portfolio/positions');
                 const data = await response.json();
                 
                 const tbody = document.getElementById('positions-table');
@@ -937,7 +1273,7 @@
         // Load trades data
         async function loadTradesData() {
             try {
-                const response = await fetch('/api/v1/portfolio/trades?limit=50');
+                const response = await apiFetch('/api/v1/portfolio/trades?limit=50');
                 const data = await response.json();
                 
                 const tbody = document.getElementById('trades-table');
@@ -968,7 +1304,7 @@
         // Load strategies data
         async function loadStrategiesData() {
             try {
-                const response = await fetch('/api/v1/strategies');
+                const response = await apiFetch('/api/v1/strategies');
                 const data = await response.json();
                 
                 const container = document.getElementById('strategies-list');
@@ -1003,7 +1339,7 @@
         // Load risk data
         async function loadRiskData() {
             try {
-                const response = await fetch('/api/v1/risk/metrics');
+                const response = await apiFetch('/api/v1/risk/metrics');
                 const data = await response.json();
                 
                 const metrics = data.risk_metrics;
@@ -1026,10 +1362,52 @@
             }
         }
 
+        async function loadTradingSettings() {
+            try {
+                const response = await apiFetch('/api/v1/settings/trading');
+                const data = await response.json();
+                const cfg = data.settings || {};
+                if (typeof cfg.max_position_size_percent === 'number') {
+                    document.getElementById('max-position-size').value = cfg.max_position_size_percent;
+                }
+                if (typeof cfg.stop_loss_percent === 'number') {
+                    document.getElementById('stop-loss').value = cfg.stop_loss_percent;
+                }
+                if (typeof cfg.take_profit_percent === 'number') {
+                    document.getElementById('take-profit').value = cfg.take_profit_percent;
+                }
+            } catch (error) {
+                console.error('Error loading trading settings:', error);
+            }
+        }
+
+        async function saveTradingSettings() {
+            try {
+                const payload = {
+                    max_position_size_percent: parseFloat(document.getElementById('max-position-size').value),
+                    stop_loss_percent: parseFloat(document.getElementById('stop-loss').value),
+                    take_profit_percent: parseFloat(document.getElementById('take-profit').value)
+                };
+
+                const response = await apiFetch('/api/v1/settings/trading', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                showAlert(data.message || 'Settings updated successfully.', 'success');
+                await loadTradingSettings();
+                await loadRiskData();
+            } catch (error) {
+                console.error('Error saving trading settings:', error);
+                showAlert('Error saving settings: ' + error.message, 'danger');
+            }
+        }
+
         // Trading controls
         async function startTrading() {
             try {
-                const response = await fetch('/api/v1/trading/start', { method: 'POST' });
+                const response = await apiFetch('/api/v1/trading/start', { method: 'POST' });
                 const data = await response.json();
                 
                 showAlert(data.message, 'success');
@@ -1042,7 +1420,7 @@
 
         async function stopTrading() {
             try {
-                const response = await fetch('/api/v1/trading/stop', { method: 'POST' });
+                const response = await apiFetch('/api/v1/trading/stop', { method: 'POST' });
                 const data = await response.json();
                 
                 showAlert(data.message, 'success');
@@ -1055,7 +1433,7 @@
 
         async function testNotification() {
             try {
-                const response = await fetch('/api/v1/notifications/test', { method: 'POST' });
+                const response = await apiFetch('/api/v1/notifications/test', { method: 'POST' });
                 const data = await response.json();
                 
                 showAlert(data.message, 'info');

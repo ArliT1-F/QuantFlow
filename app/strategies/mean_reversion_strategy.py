@@ -4,8 +4,10 @@ Mean reversion trading strategy based on statistical analysis
 import numpy as np
 from typing import Dict, Optional, Any
 from datetime import datetime
+import logging
 
 from app.strategies.base_strategy import BaseStrategy, Signal
+logger = logging.getLogger(__name__)
 
 class MeanReversionStrategy(BaseStrategy):
     """Mean reversion strategy that identifies overbought/oversold conditions"""
@@ -14,13 +16,13 @@ class MeanReversionStrategy(BaseStrategy):
         super().__init__("Mean Reversion Strategy")
         self.parameters = {
             "lookback_period": 20,  # Days to look back for mean calculation
-            "std_threshold": 1.0,  # Standard deviations from mean
-            "min_volume_ratio": 0.8,  # Current volume vs avg volume
+            "std_threshold": 1.6,  # Standard deviations from mean
+            "min_volume_ratio": 1.1,  # Current volume vs avg volume
             "rsi_oversold": 30,  # RSI oversold level
             "rsi_overbought": 70,  # RSI overbought level
             "bollinger_period": 20,  # Bollinger Bands period
             "bollinger_std": 2,  # Bollinger Bands standard deviation
-            "min_confidence": 0.5  # Minimum confidence for signal
+            "min_confidence": 0.7  # Minimum confidence for signal
         }
     
     async def generate_signal(self, symbol: str, data: Dict[str, Any]) -> Optional[Signal]:
@@ -50,7 +52,7 @@ class MeanReversionStrategy(BaseStrategy):
             return signal
             
         except Exception as e:
-            print(f"Error generating mean reversion signal for {symbol}: {e}")
+            logger.error(f"Error generating mean reversion signal for {symbol}: {e}")
             return None
     
     async def _calculate_reversion_score(self, symbol: str, data: Dict[str, Any]) -> Optional[float]:
@@ -100,7 +102,7 @@ class MeanReversionStrategy(BaseStrategy):
             }
             
         except Exception as e:
-            print(f"Error calculating reversion score for {symbol}: {e}")
+            logger.error(f"Error calculating reversion score for {symbol}: {e}")
             return None
     
     def _calculate_bollinger_position(self, price: float, prices: np.ndarray) -> float:
@@ -244,5 +246,5 @@ class MeanReversionStrategy(BaseStrategy):
             return signal
             
         except Exception as e:
-            print(f"Error creating mean reversion signal for {symbol}: {e}")
+            logger.error(f"Error creating mean reversion signal for {symbol}: {e}")
             return None

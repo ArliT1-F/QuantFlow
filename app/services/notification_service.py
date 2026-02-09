@@ -5,9 +5,8 @@ import logging
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Any
 from datetime import datetime
-import asyncio
 
 from app.core.config import settings
 
@@ -22,7 +21,8 @@ class NotificationService:
             "host": settings.EMAIL_HOST,
             "port": settings.EMAIL_PORT,
             "user": settings.EMAIL_USER,
-            "password": settings.EMAIL_PASSWORD
+            "password": settings.EMAIL_PASSWORD,
+            "recipients": settings.get_email_recipients() or ([settings.EMAIL_USER] if settings.EMAIL_USER else [])
         }
         
         logger.info("Notification service initialized")
@@ -45,14 +45,7 @@ class NotificationService:
             
             # Send email if enabled
             if self.email_enabled:
-                await self._send_email(title, message, priority)
-            
-            # In a real implementation, you might also send:
-            # - SMS notifications
-            # - Push notifications
-            # - Webhook notifications
-            # - Slack/Discord messages
-            
+                return await self._send_email(title, message, priority)
             return True
             
         except Exception as e:
@@ -216,7 +209,8 @@ Alert Time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}
             if not self.email_enabled or not all([
                 self.email_config["user"],
                 self.email_config["password"],
-                self.email_config["host"]
+                self.email_config["host"],
+                self.email_config["recipients"]
             ]):
                 logger.warning("Email notifications not configured")
                 return False
@@ -224,20 +218,18 @@ Alert Time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}
             # Create message
             msg = MIMEMultipart()
             msg['From'] = self.email_config["user"]
-            msg['To'] = self.email_config["user"]  # Send to self for now
+            msg['To'] = ", ".join(self.email_config["recipients"])
             msg['Subject'] = f"[{priority}] {subject}"
             
             # Add body
             msg.attach(MIMEText(body, 'plain'))
             
             # Send email
-            server = smtplib.SMTP(self.email_config["host"], self.email_config["port"])
-            server.starttls()
-            server.login(self.email_config["user"], self.email_config["password"])
-            
-            text = msg.as_string()
-            server.sendmail(self.email_config["user"], self.email_config["user"], text)
-            server.quit()
+            with smtplib.SMTP(self.email_config["host"], self.email_config["port"], timeout=20) as server:
+                server.starttls()
+                server.login(self.email_config["user"], self.email_config["password"])
+                text = msg.as_string()
+                server.sendmail(self.email_config["user"], self.email_config["recipients"], text)
             
             logger.info(f"Email sent successfully: {subject}")
             return True
@@ -298,7 +290,8 @@ Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}
         return self.email_enabled and all([
             self.email_config["user"],
             self.email_config["password"],
-            self.email_config["host"]
+            self.email_config["host"],
+            self.email_config["recipients"]
         ])
     
     async def test_notification(self) -> bool:

@@ -21,6 +21,7 @@ from app.services.risk_manager import RiskManager
 from app.services.portfolio_manager import PortfolioManager
 from app.services.okx_client import OkxClient
 from app.services.backtest_service import BacktestService
+from app.services.runtime_settings_service import RuntimeSettingsService
 
 # Ensure log directory exists before configuring logging
 log_dir = os.path.dirname(settings.LOG_FILE)
@@ -44,6 +45,7 @@ trading_engine = None
 data_service = None
 notification_service = None
 backtest_service = None
+runtime_settings_service = RuntimeSettingsService()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -53,13 +55,20 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Automated Coin Trading Bot...")
     
     # Initialize database
+    logger.info("Startup step: applying database migrations")
     await init_db()
+    logger.info("Startup step complete: database migrations")
     
     # Initialize services
+    logger.info("Startup step: initializing data service")
     data_service = DataService()
+    logger.info("Startup step complete: data service")
+    logger.info("Startup step: initializing notification service")
     notification_service = NotificationService()
+    logger.info("Startup step complete: notification service")
     okx_client = None
     if settings.OKX_ENABLED:
+        logger.info("Startup step: initializing OKX client")
         okx_client = OkxClient(
             api_key=settings.OKX_API_KEY,
             secret_key=settings.OKX_SECRET_KEY,
@@ -67,21 +76,37 @@ async def lifespan(app: FastAPI):
             base_url=settings.OKX_BASE_URL,
             demo=settings.OKX_DEMO_TRADING
         )
+        logger.info("Startup step complete: OKX client")
+    logger.info("Startup step: initializing portfolio manager")
     portfolio_manager = PortfolioManager(okx_client=okx_client)
     await portfolio_manager.initialize()
+    logger.info("Startup step complete: portfolio manager")
+    logger.info("Startup step: initializing risk manager")
     risk_manager = RiskManager(portfolio_manager=portfolio_manager)
+    logger.info("Startup step complete: risk manager")
+    logger.info("Startup step: applying runtime settings")
+    runtime_settings_service.apply_persisted_settings(risk_manager=risk_manager)
+    logger.info("Startup step complete: runtime settings")
+    logger.info("Startup step: initializing backtest service")
     backtest_service = BacktestService(data_service)
+    logger.info("Startup step complete: backtest service")
+    logger.info("Startup step: initializing trading engine")
     trading_engine = TradingEngine(
         data_service,
         notification_service,
         risk_manager=risk_manager,
         portfolio_manager=portfolio_manager
     )
+    logger.info("Startup step complete: trading engine")
     from app.api.routes import set_services
+    logger.info("Startup step: wiring API services")
     set_services(trading_engine, data_service, portfolio_manager, risk_manager, notification_service, backtest_service)
+    logger.info("Startup step complete: API services wired")
     
     # Start background tasks (data only; trading is manual for safety)
+    logger.info("Startup step: launching data collection background task")
     asyncio.create_task(data_service.start_data_collection())
+    logger.info("Startup step complete: data collection task launched")
     
     logger.info("Trading bot started successfully!")
     
@@ -106,8 +131,8 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=settings.get_cors_origins(),
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

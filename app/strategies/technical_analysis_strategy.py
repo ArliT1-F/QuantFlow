@@ -4,8 +4,10 @@ Technical analysis strategy based on multiple technical indicators
 import numpy as np
 from typing import Dict, Optional, Any, List
 from datetime import datetime
+import logging
 
 from app.strategies.base_strategy import BaseStrategy, Signal
+logger = logging.getLogger(__name__)
 
 class TechnicalAnalysisStrategy(BaseStrategy):
     """Technical analysis strategy using multiple indicators"""
@@ -23,8 +25,8 @@ class TechnicalAnalysisStrategy(BaseStrategy):
             "macd_signal": 9,  # MACD signal period
             "bb_period": 20,   # Bollinger Bands period
             "bb_std": 2,       # Bollinger Bands standard deviation
-            "min_confidence": 0.5,  # Minimum confidence for signal
-            "min_volume_ratio": 1.0  # Volume vs average volume
+            "min_confidence": 0.7,  # Minimum confidence for signal
+            "min_volume_ratio": 1.2  # Volume vs average volume
         }
     
     async def generate_signal(self, symbol: str, data: Dict[str, Any]) -> Optional[Signal]:
@@ -54,7 +56,7 @@ class TechnicalAnalysisStrategy(BaseStrategy):
             return signal
             
         except Exception as e:
-            print(f"Error generating technical analysis signal for {symbol}: {e}")
+            logger.error(f"Error generating technical analysis signal for {symbol}: {e}")
             return None
     
     async def _calculate_technical_indicators(self, symbol: str, data: Dict[str, Any]) -> Optional[Dict[str, float]]:
@@ -104,7 +106,7 @@ class TechnicalAnalysisStrategy(BaseStrategy):
             return indicators
             
         except Exception as e:
-            print(f"Error calculating technical indicators for {symbol}: {e}")
+            logger.error(f"Error calculating technical indicators for {symbol}: {e}")
             return None
     
     def _calculate_sma(self, prices: List[float], period: int) -> float:
@@ -149,15 +151,14 @@ class TechnicalAnalysisStrategy(BaseStrategy):
         if len(prices) < self.parameters["macd_slow"]:
             return {"macd": 0, "macd_signal": 0, "macd_histogram": 0}
         
-        # Calculate EMAs
-        ema_fast = self._calculate_ema(prices, self.parameters["macd_fast"])
-        ema_slow = self._calculate_ema(prices, self.parameters["macd_slow"])
-        
-        macd = ema_fast - ema_slow
-        
-        # Calculate MACD signal line (simplified)
-        macd_signal = macd * 0.9  # Simplified signal calculation
-        
+        # Calculate EMA series for accurate MACD and signal line.
+        ema_fast_series = self._calculate_ema_series(prices, self.parameters["macd_fast"])
+        ema_slow_series = self._calculate_ema_series(prices, self.parameters["macd_slow"])
+        macd_series = ema_fast_series - ema_slow_series
+        signal_series = self._calculate_ema_series(macd_series.tolist(), self.parameters["macd_signal"])
+
+        macd = float(macd_series[-1])
+        macd_signal = float(signal_series[-1])
         macd_histogram = macd - macd_signal
         
         return {
@@ -177,6 +178,18 @@ class TechnicalAnalysisStrategy(BaseStrategy):
         for price in prices[1:]:
             ema = (price * multiplier) + (ema * (1 - multiplier))
         
+        return ema
+
+    def _calculate_ema_series(self, prices: List[float], period: int) -> np.ndarray:
+        """Calculate EMA time series."""
+        arr = np.array(prices, dtype=float)
+        if arr.size == 0:
+            return arr
+        multiplier = 2.0 / (period + 1.0)
+        ema = np.zeros_like(arr)
+        ema[0] = arr[0]
+        for i in range(1, arr.size):
+            ema[i] = (arr[i] * multiplier) + (ema[i - 1] * (1.0 - multiplier))
         return ema
     
     def _calculate_bollinger_bands(self, prices: List[float]) -> Dict[str, float]:
@@ -211,10 +224,10 @@ class TechnicalAnalysisStrategy(BaseStrategy):
             signals = []
             
             # Moving Average signals
-            if indicators["sma_short"] > indicators["sma_long"] and indicators["price_vs_sma_short"] > 0.01:
+            if indicators["sma_short"] > indicators["sma_long"] and indicators["price_vs_sma_short"] > 0.015:
                 signals.append(("BUY", 0.3, "SMA Bullish"))
             
-            if indicators["sma_short"] < indicators["sma_long"] and indicators["price_vs_sma_short"] < -0.01:
+            if indicators["sma_short"] < indicators["sma_long"] and indicators["price_vs_sma_short"] < -0.015:
                 signals.append(("SELL", 0.3, "SMA Bearish"))
             
             # RSI signals
@@ -288,5 +301,5 @@ class TechnicalAnalysisStrategy(BaseStrategy):
             return signal
             
         except Exception as e:
-            print(f"Error creating technical analysis signal for {symbol}: {e}")
+            logger.error(f"Error creating technical analysis signal for {symbol}: {e}")
             return None

@@ -5,8 +5,10 @@ import numpy as np
 import pandas as pd
 from typing import Dict, Optional, Any
 from datetime import datetime
+import logging
 
 from app.strategies.base_strategy import BaseStrategy, Signal
+logger = logging.getLogger(__name__)
 
 class MomentumStrategy(BaseStrategy):
     """Momentum strategy that identifies coins with strong upward or downward momentum"""
@@ -15,11 +17,11 @@ class MomentumStrategy(BaseStrategy):
         super().__init__("Momentum Strategy")
         self.parameters = {
             "lookback_period": 14,  # Days to look back for momentum calculation
-            "momentum_threshold": 0.015,  # Minimum momentum threshold (1.5%)
-            "volume_threshold": 1.1,  # Volume must be 1.1x average
+            "momentum_threshold": 0.03,  # Minimum momentum threshold (3.0%)
+            "volume_threshold": 1.2,  # Volume must be 1.2x average
             "rsi_oversold": 30,  # RSI oversold level
             "rsi_overbought": 70,  # RSI overbought level
-            "min_confidence": 0.4  # Minimum confidence for signal
+            "min_confidence": 0.55  # Minimum confidence for signal
         }
     
     async def generate_signal(self, symbol: str, data: Dict[str, Any]) -> Optional[Signal]:
@@ -49,7 +51,7 @@ class MomentumStrategy(BaseStrategy):
             return signal
             
         except Exception as e:
-            print(f"Error generating momentum signal for {symbol}: {e}")
+            logger.error(f"Error generating momentum signal for {symbol}: {e}")
             return None
     
     async def _calculate_momentum_metrics(self, symbol: str, data: Dict[str, Any]) -> Optional[Dict[str, float]]:
@@ -84,7 +86,7 @@ class MomentumStrategy(BaseStrategy):
             }
             
         except Exception as e:
-            print(f"Error calculating momentum score for {symbol}: {e}")
+            logger.error(f"Error calculating momentum score for {symbol}: {e}")
             return None
     
     def _create_signal_from_momentum(self, symbol: str, data: Dict[str, Any], momentum_data: Dict[str, float]) -> Optional[Signal]:
@@ -141,7 +143,7 @@ class MomentumStrategy(BaseStrategy):
             return signal
             
         except Exception as e:
-            print(f"Error creating momentum signal for {symbol}: {e}")
+            logger.error(f"Error creating momentum signal for {symbol}: {e}")
             return None
     
     def _calculate_rsi(self, prices: pd.Series, period: int = 14) -> float:

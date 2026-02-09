@@ -21,6 +21,8 @@ class DataService:
         self.alpha_vantage = None
         self.cache = {}
         self.cache_expiry = {}
+        self.history_cache = {}
+        self.history_cache_expiry = {}
         self.is_running_flag = False
         self.data_task = None
         self.okx_client = None
@@ -103,6 +105,8 @@ class DataService:
     async def get_latest_data_for_symbol(self, symbol: str, include_history: bool = False) -> Optional[Dict[str, Any]]:
         """Get latest data for a specific symbol"""
         # Check cache first
+        if include_history and self._is_history_cache_valid(symbol):
+            return self.history_cache.get(symbol)
         if self._is_cache_valid(symbol) and not include_history:
             return self.cache.get(symbol)
         
@@ -111,6 +115,7 @@ class DataService:
                 okx_data = await self._fetch_okx_data(symbol, include_history=include_history)
                 if okx_data:
                     if "history" in okx_data:
+                        self._cache_history_data(symbol, okx_data)
                         cache_copy = okx_data.copy()
                         cache_copy.pop("history", None)
                         self._cache_data(symbol, cache_copy)
@@ -135,6 +140,7 @@ class DataService:
             
             # Cache the data (without history to keep cache light)
             if combined_data and "history" in combined_data:
+                self._cache_history_data(symbol, combined_data)
                 cache_copy = combined_data.copy()
                 cache_copy.pop("history", None)
                 self._cache_data(symbol, cache_copy)
@@ -305,6 +311,19 @@ class DataService:
         """Cache data with expiry"""
         self.cache[symbol] = data
         self.cache_expiry[symbol] = datetime.utcnow() + timedelta(minutes=5)  # 5-minute cache
+
+    def _cache_history_data(self, symbol: str, data: Dict[str, Any]):
+        """Cache data including history with a shorter expiry."""
+        self.history_cache[symbol] = data
+        self.history_cache_expiry[symbol] = datetime.utcnow() + timedelta(seconds=max(settings.DATA_UPDATE_INTERVAL // 2, 15))
+
+    def _is_history_cache_valid(self, symbol: str) -> bool:
+        if symbol not in self.history_cache:
+            return False
+        expiry_time = self.history_cache_expiry.get(symbol)
+        if not expiry_time:
+            return False
+        return datetime.utcnow() < expiry_time
     
     async def get_historical_data(self, symbol: str, period: str = "1y") -> Optional[pd.DataFrame]:
         """Get historical data for backtesting"""

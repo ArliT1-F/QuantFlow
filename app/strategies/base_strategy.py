@@ -6,6 +6,7 @@ from typing import Dict, Optional, Any
 import pandas as pd
 import numpy as np
 from dataclasses import dataclass
+from app.core.config import settings
 
 @dataclass
 class Signal:
@@ -73,7 +74,7 @@ class BaseStrategy(ABC):
         position_size = int(risk_amount / price_risk)
         return max(1, position_size)  # Minimum 1 share
     
-    def calculate_stop_loss(self, price: float, action: str, stop_loss_pct: float = 0.05) -> float:
+    def calculate_stop_loss(self, price: float, action: str, stop_loss_pct: Optional[float] = None) -> float:
         """
         Calculate stop loss price
         
@@ -85,12 +86,14 @@ class BaseStrategy(ABC):
         Returns:
             Stop loss price
         """
+        stop_loss_pct = settings.STOP_LOSS_PERCENTAGE if stop_loss_pct is None else stop_loss_pct
+
         if action == "BUY":
             return price * (1 - stop_loss_pct)
         else:  # SELL
             return price * (1 + stop_loss_pct)
     
-    def calculate_take_profit(self, price: float, action: str, take_profit_pct: float = 0.15) -> float:
+    def calculate_take_profit(self, price: float, action: str, take_profit_pct: Optional[float] = None) -> float:
         """
         Calculate take profit price
         
@@ -102,6 +105,8 @@ class BaseStrategy(ABC):
         Returns:
             Take profit price
         """
+        take_profit_pct = settings.TAKE_PROFIT_PERCENTAGE if take_profit_pct is None else take_profit_pct
+
         if action == "BUY":
             return price * (1 + take_profit_pct)
         else:  # SELL

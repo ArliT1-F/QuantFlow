@@ -12,14 +12,16 @@ from app.services.portfolio_manager import PortfolioManager
 from app.services.risk_manager import RiskManager
 from app.services.notification_service import NotificationService
 from app.services.backtest_service import BacktestService
+from app.services.runtime_settings_service import RuntimeSettingsService
 from app.core.config import settings
+from app.api.security import require_api_key
 import os
 from collections import deque
 
 logger = logging.getLogger(__name__)
 
 # Create router
-api_router = APIRouter()
+api_router = APIRouter(dependencies=[Depends(require_api_key)])
 
 # Global services (will be injected)
 trading_engine: Optional[TradingEngine] = None
@@ -28,6 +30,7 @@ portfolio_manager: Optional[PortfolioManager] = None
 risk_manager: Optional[RiskManager] = None
 notification_service: Optional[NotificationService] = None
 backtest_service: Optional[BacktestService] = None
+runtime_settings_service = RuntimeSettingsService()
 
 def set_services(te: TradingEngine, ds: DataService, pm: PortfolioManager, 
                 rm: RiskManager, ns: NotificationService, bs: Optional[BacktestService] = None):
@@ -133,6 +136,23 @@ async def get_trading_history(limit: int = 100):
         logger.error(f"Error getting trading history: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.get("/portfolio/performance")
+async def get_portfolio_performance(limit: int = 100):
+    """Get portfolio performance history"""
+    if not portfolio_manager:
+        raise HTTPException(status_code=503, detail="Portfolio manager not available")
+
+    try:
+        performance = await portfolio_manager.get_performance_history(limit)
+        return {
+            "performance": performance,
+            "count": len(performance),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error getting portfolio performance: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Market Data Routes
 @api_router.get("/market/data")
 async def get_market_data():
@@ -215,6 +235,40 @@ async def get_risk_metrics():
         }
     except Exception as e:
         logger.error(f"Error getting risk metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/settings/trading")
+async def get_trading_settings():
+    """Get persisted trading settings."""
+    try:
+        runtime = runtime_settings_service.get_trading_settings()
+        return {
+            "settings": runtime_settings_service.to_percent_response(runtime),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error getting trading settings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.post("/settings/trading")
+async def update_trading_settings(payload: Dict[str, Any]):
+    """Update and persist trading settings."""
+    if not risk_manager:
+        raise HTTPException(status_code=503, detail="Risk manager not available")
+
+    try:
+        runtime = runtime_settings_service.update_trading_settings(payload, risk_manager=risk_manager)
+        return {
+            "message": "Trading settings updated successfully",
+            "settings": runtime_settings_service.to_percent_response(runtime),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error updating trading settings: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.post("/risk/limits")

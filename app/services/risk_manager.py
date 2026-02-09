@@ -2,13 +2,15 @@
 Risk management system for controlling trading risk
 """
 import logging
-from typing import Dict, List, Optional, Any
-from datetime import datetime, timedelta
+from typing import Dict, Optional, Any, Tuple, List
+from datetime import datetime
 import numpy as np
 from dataclasses import dataclass
 
 from app.core.config import settings
 from app.strategies.base_strategy import Signal
+from app.core.database import SessionLocal
+from app.models.portfolio import PortfolioSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +34,11 @@ class RiskManager:
         self.daily_trades = 0
         self.daily_pnl = 0.0
         self.last_reset_date = datetime.utcnow().date()
-        self.position_correlations = {}
-        self.sector_exposures = {}
+        self.position_correlations: Dict[str, float] = {}
+        self.sector_exposures: Dict[str, float] = {}
         self.portfolio_manager = portfolio_manager
+        self.peak_portfolio_value = max(self._get_portfolio_value(), 0.0)
+        self.last_drawdown = 0.0
 
         # Sync limits from settings
         self.risk_limits.max_position_size = settings.MAX_POSITION_SIZE
@@ -44,7 +48,7 @@ class RiskManager:
         
         logger.info("Risk manager initialized")
     
-    async def validate_signal(self, signal: Signal) -> (bool, str):
+    async def validate_signal(self, signal: Signal) -> Tuple[bool, str]:
         """
         Validate if a trading signal meets risk criteria
         
@@ -72,10 +76,13 @@ class RiskManager:
             # Check correlation limits
             if not await self._check_correlation_limit(signal):
                 return False, "correlation limit exceeded"
+
+            if not await self._check_portfolio_risk_limit(signal):
+                return False, "portfolio risk limit exceeded"
             
             # Check sector exposure limits
             if not await self._check_sector_exposure_limit(signal):
-                return False, "sector exposure limit exceeded"
+                return False, "position concentration limit exceeded"
             
             # Check volume requirements
             if not self._check_volume_requirements(signal):
@@ -118,6 +125,8 @@ class RiskManager:
     async def _check_portfolio_risk_limit(self, signal: Signal) -> bool:
         """Check if portfolio risk limit is exceeded"""
         try:
+            if signal.action == "SELL":
+                return True
             # Calculate risk per trade
             if signal.stop_loss is None:
                 return False
@@ -140,14 +149,42 @@ class RiskManager:
     async def _check_correlation_limit(self, signal: Signal) -> bool:
         """Check if correlation limit is exceeded"""
         try:
-            # This would typically calculate correlation with existing positions
-            # For now, we'll use a simplified check
-            symbol = signal.symbol
-            
-            if symbol in self.position_correlations:
-                max_correlation = max(self.position_correlations[symbol].values())
-                return max_correlation <= self.risk_limits.max_correlation
-            
+            if signal.action == "SELL":
+                return True
+            metadata = signal.metadata or {}
+            closes_by_symbol = metadata.get("closes_by_symbol", {})
+            candidate_closes = closes_by_symbol.get(signal.symbol)
+            open_symbols = []
+            if self.portfolio_manager:
+                open_symbols = [s for s, pos in self.portfolio_manager.positions.items() if pos.get("quantity", 0) > 0]
+
+            if not candidate_closes or len(open_symbols) == 0:
+                self.position_correlations = {}
+                return True
+
+            candidate_returns = self._to_returns(candidate_closes)
+            if len(candidate_returns) < 3:
+                self.position_correlations = {}
+                return True
+
+            computed: Dict[str, float] = {}
+            for sym in open_symbols:
+                closes = closes_by_symbol.get(sym)
+                if not closes:
+                    continue
+                other_returns = self._to_returns(closes)
+                min_len = min(len(candidate_returns), len(other_returns))
+                if min_len < 3:
+                    continue
+                corr = np.corrcoef(candidate_returns[-min_len:], other_returns[-min_len:])[0, 1]
+                if np.isnan(corr):
+                    continue
+                computed[sym] = float(corr)
+                if abs(corr) > self.risk_limits.max_correlation:
+                    self.position_correlations = computed
+                    return False
+
+            self.position_correlations = computed
             return True
             
         except Exception as e:
@@ -155,16 +192,25 @@ class RiskManager:
             return True
     
     async def _check_sector_exposure_limit(self, signal: Signal) -> bool:
-        """Check if sector exposure limit is exceeded"""
+        """Check if single-asset exposure limit is exceeded."""
         try:
-            # This would typically check against actual sector data
-            # For now, we'll use a simplified check
-            symbol = signal.symbol
-            
-            # Simulate sector exposure
-            current_exposure = self.sector_exposures.get(symbol, 0.05)  # 5% default
-            
-            return current_exposure <= self.risk_limits.max_sector_exposure
+            if not self.portfolio_manager:
+                return True
+            portfolio_value = self._get_portfolio_value()
+            if portfolio_value <= 0:
+                return False
+
+            exposures = self._compute_symbol_exposures(portfolio_value)
+            if signal.action == "SELL":
+                self.sector_exposures = exposures
+                return True
+            quantity = signal.quantity if signal.quantity is not None else await self.calculate_position_size(signal)
+            if signal.action == "BUY" and quantity > 0 and signal.price > 0:
+                projected_value = exposures.get(signal.symbol, 0.0) * portfolio_value + (quantity * signal.price)
+                projected_exposure = projected_value / portfolio_value
+                exposures[signal.symbol] = projected_exposure
+            self.sector_exposures = exposures
+            return max(exposures.values(), default=0.0) <= self.risk_limits.max_sector_exposure
             
         except Exception as e:
             logger.error(f"Error checking sector exposure limit: {e}")
@@ -190,6 +236,10 @@ class RiskManager:
             Number of shares to trade
         """
         try:
+            if signal.action == "SELL":
+                if self.portfolio_manager and signal.symbol in self.portfolio_manager.positions:
+                    return float(max(self.portfolio_manager.positions[signal.symbol].get("quantity", 0.0), 0.0))
+                return 0.0
             portfolio_value = self._get_portfolio_value()
             if portfolio_value <= 0:
                 return 0
@@ -249,48 +299,52 @@ class RiskManager:
             # Update daily P&L
             pnl = trade_data.get("pnl", 0)
             self.daily_pnl += pnl
-            
-            # Update position correlations (simplified)
+
             symbol = trade_data.get("symbol", "")
-            if symbol:
-                self.position_correlations[symbol] = {
-                    "BTC-USD": 0.3,  # Simulated correlation
-                    "ETH-USD": 0.4,
-                    "SOL-USD": 0.2
-                }
-            
-            # Update sector exposures (simplified)
-            self.sector_exposures[symbol] = 0.05  # 5% default
+            portfolio_value = self._get_portfolio_value()
+            if portfolio_value > 0:
+                self.peak_portfolio_value = max(self.peak_portfolio_value, portfolio_value)
+                self.sector_exposures = self._compute_symbol_exposures(portfolio_value)
             
             logger.info(f"Trade recorded: {symbol}, Daily trades: {self.daily_trades}, Daily P&L: {self.daily_pnl}")
             
         except Exception as e:
             logger.error(f"Error recording trade: {e}")
     
-    async def check_risk_limits(self):
-        """Check all risk limits and take action if necessary"""
+    async def check_risk_limits(self) -> Tuple[bool, str]:
+        """Check all risk limits and return whether trading can continue."""
         try:
-            # Check daily loss limit
-            if self.daily_pnl < -self.risk_limits.max_daily_loss:
-                logger.warning(f"Daily loss limit exceeded: {self.daily_pnl}")
-                # In a real implementation, this would trigger risk management actions
-                # such as closing positions, stopping trading, etc.
-            
-            # Check drawdown limit
-            # This would typically check against portfolio peak value
-            current_drawdown = 0.05  # Simulated 5% drawdown
-            if current_drawdown > self.risk_limits.max_drawdown:
-                logger.warning(f"Maximum drawdown exceeded: {current_drawdown}")
-                # Trigger risk management actions
-            
-            logger.info("Risk limits check completed")
+            self._reset_daily_counters_if_needed()
+            portfolio_value = self._get_portfolio_value()
+            if portfolio_value <= 0:
+                return False, "portfolio value is non-positive"
+
+            self.peak_portfolio_value = max(self.peak_portfolio_value, portfolio_value)
+            max_daily_loss_amount = portfolio_value * self.risk_limits.max_daily_loss
+            if self.daily_pnl <= -max_daily_loss_amount:
+                reason = f"daily loss limit exceeded ({self.daily_pnl:.2f} <= -{max_daily_loss_amount:.2f})"
+                logger.warning(reason)
+                return False, reason
+
+            self.last_drawdown = self._current_drawdown_ratio(portfolio_value)
+            if self.last_drawdown > self.risk_limits.max_drawdown:
+                reason = f"max drawdown exceeded ({self.last_drawdown:.4f} > {self.risk_limits.max_drawdown:.4f})"
+                logger.warning(reason)
+                return False, reason
+
+            return True, ""
             
         except Exception as e:
             logger.error(f"Error checking risk limits: {e}")
+            return False, "risk limit check failure"
     
     def get_risk_metrics(self) -> Dict[str, Any]:
         """Get current risk metrics"""
         self._reset_daily_counters_if_needed()
+        portfolio_value = self._get_portfolio_value()
+        if portfolio_value > 0:
+            self.sector_exposures = self._compute_symbol_exposures(portfolio_value)
+            self.last_drawdown = self._current_drawdown_ratio(portfolio_value)
         
         return {
             "daily_trades": self.daily_trades,
@@ -299,6 +353,8 @@ class RiskManager:
             "max_daily_loss": self.risk_limits.max_daily_loss,
             "max_position_size": self.risk_limits.max_position_size,
             "max_portfolio_risk": self.risk_limits.max_portfolio_risk,
+            "max_drawdown": self.risk_limits.max_drawdown,
+            "current_drawdown": self.last_drawdown,
             "position_correlations": self.position_correlations,
             "sector_exposures": self.sector_exposures,
             "last_reset_date": self.last_reset_date.isoformat()
@@ -338,17 +394,54 @@ class RiskManager:
             VaR amount
         """
         try:
-            # Simplified VaR calculation
-            # In a real implementation, this would use historical returns
-            # and correlation data
-            
-            volatility = 0.02  # 2% daily volatility
-            z_score = 1.645 if confidence_level == 0.95 else 2.326  # 99% confidence
-            
-            var = portfolio_value * volatility * z_score
-            
-            return var
+            if portfolio_value <= 0:
+                return 0.0
+            if not self.portfolio_manager or not self.portfolio_manager.portfolio_id:
+                return 0.0
+
+            db = SessionLocal()
+            snapshots = db.query(PortfolioSnapshot).filter(
+                PortfolioSnapshot.portfolio_id == self.portfolio_manager.portfolio_id
+            ).order_by(PortfolioSnapshot.timestamp.asc()).limit(1000).all()
+            db.close()
+
+            equity = [float(s.total_value) for s in snapshots if s.total_value is not None and s.total_value > 0]
+            returns = self._to_returns(equity)
+            if len(returns) < 5:
+                return 0.0
+
+            percentile = (1.0 - confidence_level) * 100.0
+            var_return = np.percentile(np.array(returns, dtype=float), percentile)
+            return float(abs(var_return) * portfolio_value)
             
         except Exception as e:
             logger.error(f"Error calculating VaR: {e}")
             return 0.0
+
+    def _to_returns(self, values: List[float]) -> List[float]:
+        returns: List[float] = []
+        for i in range(1, len(values)):
+            prev = values[i - 1]
+            curr = values[i]
+            if prev > 0:
+                returns.append((curr - prev) / prev)
+        return returns
+
+    def _compute_symbol_exposures(self, portfolio_value: float) -> Dict[str, float]:
+        if not self.portfolio_manager or portfolio_value <= 0:
+            return {}
+        exposures: Dict[str, float] = {}
+        for symbol, pos in self.portfolio_manager.positions.items():
+            qty = float(pos.get("quantity", 0.0))
+            px = float(pos.get("current_price", 0.0))
+            if qty <= 0 or px <= 0:
+                continue
+            exposures[symbol] = (qty * px) / portfolio_value
+        return exposures
+
+    def _current_drawdown_ratio(self, portfolio_value: float) -> float:
+        if portfolio_value <= 0:
+            return 1.0
+        if self.peak_portfolio_value <= 0:
+            return 0.0
+        return max((self.peak_portfolio_value - portfolio_value) / self.peak_portfolio_value, 0.0)

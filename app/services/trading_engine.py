@@ -14,6 +14,7 @@ from app.services.data_service import DataService
 from app.services.notification_service import NotificationService
 from app.services.risk_manager import RiskManager
 from app.services.portfolio_manager import PortfolioManager
+from app.services.backtest_service import BacktestService
 from app.strategies.base_strategy import BaseStrategy
 from app.strategies.momentum_strategy import MomentumStrategy
 from app.strategies.mean_reversion_strategy import MeanReversionStrategy
@@ -64,12 +65,14 @@ class TradingEngine:
         # Strategies
         self.strategies: Dict[str, BaseStrategy] = {}
         self._initialize_strategies()
+        self.active_strategy_names = set(self.strategies.keys())
         
         # Trading loop
         self.trading_task: Optional[asyncio.Task] = None
 
         # Recent events
         self.recent_events = deque(maxlen=50)
+        self.last_trade_at: Dict[str, datetime] = {}
         
         logger.info("Trading engine initialized")
     
@@ -102,6 +105,7 @@ class TradingEngine:
             
             # Initialize portfolio manager
             await self.portfolio_manager.initialize()
+            await self._select_active_strategies()
             
             # Start trading loop
             self.is_running_flag = True
@@ -184,7 +188,13 @@ class TradingEngine:
                 await self.portfolio_manager.update_portfolio(market_data)
                 
                 # Risk management checks
-                await self.risk_manager.check_risk_limits()
+                risk_ok, risk_reason = await self.risk_manager.check_risk_limits()
+                if not risk_ok:
+                    self._add_event("risk_halt", "", "risk_manager", risk_reason)
+                    await self.notification_service.send_risk_alert("Hard Limit Breach", risk_reason)
+                    self.is_running_flag = False
+                    self.state = TradingState.STOPPED
+                    break
                 
                 # Wait for next iteration
                 await asyncio.sleep(settings.DATA_UPDATE_INTERVAL)
@@ -198,22 +208,69 @@ class TradingEngine:
     async def _generate_signals(self, market_data: Dict) -> List[TradingSignal]:
         """Generate trading signals from all strategies"""
         signals = []
+        closes_by_symbol = {}
+        for symbol, data in market_data.items():
+            history = data.get("history") or []
+            closes = [float(h["close"]) for h in history if isinstance(h, dict) and h.get("close") is not None]
+            if len(closes) >= 3:
+                closes_by_symbol[symbol] = closes
         
         for symbol, data in market_data.items():
             for strategy_name, strategy in self.strategies.items():
+                if strategy_name not in self.active_strategy_names:
+                    continue
                 try:
                     signal = await strategy.generate_signal(symbol, data)
                     if signal and signal.action != "HOLD":
+                        signal.metadata = signal.metadata or {}
+                        signal.metadata["closes_by_symbol"] = closes_by_symbol
                         signal.strategy = strategy_name
                         signals.append(signal)
                 except Exception as e:
                     logger.error(f"Error generating signal for {symbol} with {strategy_name}: {e}")
         
         return signals
+
+    async def _select_active_strategies(self):
+        """
+        Select strategies that are currently profitable on a quick rolling backtest.
+        Falls back to the best available strategy if none are positive.
+        """
+        try:
+            if not self.strategies:
+                self.active_strategy_names = set()
+                return
+
+            evaluator = BacktestService(self.data_service)
+            candidate_names = list(self.strategies.keys())
+            symbols = settings.DEFAULT_SYMBOLS[:4]
+            result = await evaluator.run_backtest(
+                symbols=symbols,
+                days=120,
+                strategies=candidate_names,
+                initial_capital=max(self.portfolio_manager.total_value, settings.DEFAULT_CAPITAL)
+            )
+            summary = (result.get("summary") or {}).get("strategies", {})
+            scored = []
+            for name in candidate_names:
+                stats = summary.get(name, {})
+                avg_return = float(stats.get("avg_return_percent", -9999.0))
+                avg_dd = float(stats.get("avg_max_drawdown_percent", 100.0))
+                scored.append((name, avg_return, avg_dd))
+
+            keep = [name for name, avg_return, avg_dd in scored if avg_return > 0 and avg_dd <= 20.0]
+            if not keep:
+                keep = [max(scored, key=lambda item: item[1])[0]]
+            self.active_strategy_names = set(keep)
+            logger.info(f"Active strategies selected: {sorted(self.active_strategy_names)}")
+        except Exception as e:
+            logger.warning(f"Strategy selection failed, using all strategies: {e}")
+            self.active_strategy_names = set(self.strategies.keys())
     
     async def _process_signals(self, signals: List[TradingSignal]):
         """Process trading signals and execute trades"""
-        for signal in signals:
+        consolidated_signals = self._consolidate_signals(signals)
+        for signal in consolidated_signals:
             try:
                 # Risk management check
                 is_valid, reason = await self.risk_manager.validate_signal(signal)
@@ -231,14 +288,118 @@ class TradingEngine:
                     # Send notification
                     await self.notification_service.send_trade_notification(trade_result)
                     await self.risk_manager.record_trade(trade_result)
+                    self.last_trade_at[signal.symbol] = datetime.utcnow()
+                    if signal.strategy in self.strategies:
+                        self.strategies[signal.strategy].update_performance(trade_result)
                     self._add_event("trade", signal.symbol, signal.strategy, "executed", trade_result)
                 
             except Exception as e:
                 logger.error(f"Error processing signal {signal.symbol}: {e}")
+
+    def _consolidate_signals(self, signals: List[TradingSignal]) -> List[TradingSignal]:
+        """Consolidate multiple strategy signals into at most one signal per symbol."""
+        by_symbol: Dict[str, Dict[str, Any]] = {}
+        now = datetime.utcnow()
+        for signal in signals:
+            if signal.action not in ("BUY", "SELL"):
+                continue
+            if not self._passes_cooldown(signal.symbol, now, signal.strategy):
+                continue
+
+            entry = by_symbol.setdefault(signal.symbol, {
+                "buy_strength": 0.0,
+                "sell_strength": 0.0,
+                "best_buy": None,
+                "best_sell": None,
+            })
+            weighted_conf = signal.confidence * self._strategy_weight(signal.strategy)
+            if signal.action == "BUY":
+                entry["buy_strength"] += weighted_conf
+                if entry["best_buy"] is None or signal.confidence > entry["best_buy"].confidence:
+                    entry["best_buy"] = signal
+            else:
+                entry["sell_strength"] += weighted_conf
+                if entry["best_sell"] is None or signal.confidence > entry["best_sell"].confidence:
+                    entry["best_sell"] = signal
+
+        consolidated: List[TradingSignal] = []
+        for symbol, data in by_symbol.items():
+            buy_strength = data["buy_strength"]
+            sell_strength = data["sell_strength"]
+            selected = None
+
+            if buy_strength > 0 and sell_strength > 0:
+                ratio = settings.CONFLICT_STRENGTH_RATIO
+                if buy_strength >= sell_strength * ratio:
+                    selected = data["best_buy"]
+                elif sell_strength >= buy_strength * ratio:
+                    selected = data["best_sell"]
+                else:
+                    self._add_event("signal_conflict", symbol, "consensus", "conflicting signals dropped")
+                    continue
+            elif buy_strength > 0:
+                selected = data["best_buy"]
+            elif sell_strength > 0:
+                selected = data["best_sell"]
+
+            if selected is None:
+                continue
+            if selected.confidence < settings.MIN_SIGNAL_CONFIDENCE:
+                continue
+            if not self._passes_position_rules(selected, now):
+                continue
+            consolidated.append(selected)
+
+        consolidated.sort(key=lambda s: s.confidence, reverse=True)
+        return consolidated
+
+    def _passes_cooldown(self, symbol: str, now: datetime, strategy: str) -> bool:
+        if strategy == "risk_exit":
+            return True
+        last_trade_at = self.last_trade_at.get(symbol)
+        if last_trade_at is None:
+            return True
+        elapsed = (now - last_trade_at).total_seconds()
+        return elapsed >= settings.SIGNAL_COOLDOWN_SECONDS
+
+    def _passes_position_rules(self, signal: TradingSignal, now: datetime) -> bool:
+        has_position = signal.symbol in self.portfolio_manager.positions and self.portfolio_manager.positions[signal.symbol].get("quantity", 0) > 0
+        if signal.action == "SELL":
+            if not has_position:
+                return False
+            if signal.strategy == "risk_exit":
+                return True
+            opened_at = self.portfolio_manager.positions[signal.symbol].get("opened_at")
+            if opened_at is None:
+                return True
+            hold_seconds = (now - opened_at).total_seconds()
+            return hold_seconds >= settings.MIN_HOLD_SECONDS
+        if signal.action == "BUY":
+            if has_position:
+                return False
+        return True
+
+    def _strategy_weight(self, strategy_name: str) -> float:
+        strategy = self.strategies.get(strategy_name)
+        if strategy is None:
+            return 1.0
+        perf = strategy.get_performance_metrics()
+        total_trades = perf.get("total_trades", 0)
+        if total_trades < 5:
+            return 1.0
+        win_rate = perf.get("win_rate", 0.0)
+        total_pnl = perf.get("total_pnl", 0.0)
+        base = 0.7 + (win_rate * 0.6)
+        pnl_adj = 0.15 if total_pnl > 0 else -0.15
+        return min(max(base + pnl_adj, 0.5), 1.5)
     
     async def _execute_trade(self, signal: TradingSignal) -> Optional[Dict]:
         """Execute a trade based on signal"""
         try:
+            if not self._passes_edge_filter(signal):
+                logger.info(f"Signal failed edge filter for {signal.symbol} {signal.action}")
+                return None
+
             # Calculate position size
             position_size = signal.quantity if signal.quantity is not None else await self.risk_manager.calculate_position_size(signal)
             
@@ -266,6 +427,31 @@ class TradingEngine:
         except Exception as e:
             logger.error(f"Error executing trade for {signal.symbol}: {e}")
             return None
+
+    def _passes_edge_filter(self, signal: TradingSignal) -> bool:
+        """
+        Reject trades whose expected edge is too small compared with fees/slippage.
+        This avoids churn on near-flat signals.
+        """
+        if signal.strategy == "risk_exit":
+            return True
+        if signal.price <= 0:
+            return False
+
+        # Approximate 0.1% per side fee + slippage buffer.
+        min_reward = 0.004
+        if signal.take_profit is not None:
+            expected_reward = abs(signal.take_profit - signal.price) / signal.price
+            if expected_reward < min_reward:
+                return False
+        if signal.stop_loss is not None and signal.take_profit is not None:
+            risk = abs(signal.price - signal.stop_loss) / signal.price
+            reward = abs(signal.take_profit - signal.price) / signal.price
+            if risk <= 0:
+                return False
+            if (reward / risk) < 1.2:
+                return False
+        return True
     
     async def _process_exit_conditions(self, market_data: Dict):
         """Check stop-loss and take-profit for open positions"""

@@ -36,6 +36,13 @@ if not db_url:
 print('✅ Database URL configured')
 " || exit 1
 
+# Ensure migrations are applied
+echo "🔄 Verifying database migrations..."
+venv/bin/python -m alembic upgrade head || {
+    echo "❌ Failed to apply database migrations. Check alembic config and database access."
+    exit 1
+}
+
 # Start the application
 echo "🚀 Starting trading bot..."
 echo "📊 Dashboard will be available at: http://localhost:8000"
