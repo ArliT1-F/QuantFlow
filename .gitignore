@@ -22,3 +22,8 @@ local.ini
 
 # Project-specific
 logs/trading_bot.log
+
+# E2E / Node artifacts
+e2e/node_modules/
+e2e/test-results/
+e2e/playwright-report/

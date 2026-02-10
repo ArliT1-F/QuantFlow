@@ -17,6 +17,7 @@ An educational, **paper-trading** crypto/coin system with real-time data feeds, 
 
 ### 📊 Data Integration
 - **Multiple Data Sources**: Yahoo Finance (default), Alpha Vantage (optional, limited crypto support), and OKX (recommended for crypto)
+- **DexScreener Aggregation**: Merges `top` + `latest` boosts, enriches with token profiles, and deduplicates by pair address
 - **Real-time Market Data**: Live price feeds and volume
 - **Technical Indicators**: RSI, MACD, Bollinger Bands, Moving Averages
 - **Historical Data**: Backtesting and analysis capabilities
@@ -40,6 +41,8 @@ An educational, **paper-trading** crypto/coin system with real-time data feeds, 
 - **Strategy Control**: Enable/disable strategies and adjust parameters
 - **Risk Monitoring**: Real-time risk metrics and alerts
 - **Trade Management**: View and analyze trading history
+- **Pair Drill-Down Drawer**: Click any market row to open an embedded DexScreener detail panel
+- **State Persistence**: Market filters, pagination, selected pair, language, and section persist via URL + local storage
 
 ### 🔔 Notification System
 - **Email Alerts**: Trade executions, risk warnings, and performance reports
@@ -87,6 +90,15 @@ OKX_API_KEY=your_okx_api_key_here
 OKX_SECRET_KEY=your_okx_secret_here
 OKX_PASSPHRASE=your_okx_passphrase_here
 OKX_QUOTE_CCY=USDT
+
+# DexScreener (Optional - market data only)
+DEXSCREENER_ENABLED=false
+DEXSCREENER_CHAIN=
+DEXSCREENER_QUOTE_SYMBOL=USDT
+DEXSCREENER_TIMEOUT_SECONDS=10
+DEXSCREENER_MAX_RETRIES=3
+DEXSCREENER_MAX_CONCURRENCY=8
+DEXSCREENER_MIN_LIQUIDITY_USD=50000
 
 # Tip: For stable crypto data, set OKX_MARKET_DATA_ENABLED=true and set YAHOO_FINANCE_ENABLED=false.
 
@@ -216,6 +228,8 @@ GET  /api/v1/portfolio/performance
 
 # Market Data
 GET  /api/v1/market/data
+GET  /api/v1/market/dexscreener/boosts
+GET  /api/v1/market/health
 GET  /api/v1/market/data/{symbol}
 GET  /api/v1/market/historical/{symbol}
 
@@ -258,6 +272,19 @@ result = response.json()
 response = requests.get('http://localhost:8000/api/v1/market/data', headers=headers)
 market_data = response.json()
 ```
+
+## 🧪 E2E Testing
+
+Browser-level UI tests are in `e2e/` (Playwright):
+
+```bash
+cd e2e
+npm install
+npx playwright install
+QF_BASE_URL=http://127.0.0.1:8000 npm run test:e2e
+```
+
+Coverage includes market row click drawer flow, external-link behavior, fallback rendering, keyboard interactions, and state persistence on reload.
 
 ## ⚙️ Configuration
 

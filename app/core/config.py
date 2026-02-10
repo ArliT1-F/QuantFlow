@@ -4,14 +4,15 @@ Application configuration management
 import os
 import json
 from typing import Any, List, Optional
-from pydantic import validator
-from pydantic_settings import BaseSettings
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from dotenv import load_dotenv
 
 load_dotenv()
 
 class Settings(BaseSettings):
     """Application settings"""
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
     
     # Database
     DATABASE_URL: str = "postgresql://username:password@localhost:5432/trading_bot"
@@ -31,6 +32,15 @@ class Settings(BaseSettings):
     OKX_SECRET_KEY: Optional[str] = None
     OKX_PASSPHRASE: Optional[str] = None
     OKX_QUOTE_CCY: str = "USDT"
+
+    # DEX Screener Configuration (market data only)
+    DEXSCREENER_ENABLED: bool = False
+    DEXSCREENER_CHAIN: str = ""
+    DEXSCREENER_QUOTE_SYMBOL: str = "USDT"
+    DEXSCREENER_TIMEOUT_SECONDS: int = 10
+    DEXSCREENER_MAX_RETRIES: int = 3
+    DEXSCREENER_MAX_CONCURRENCY: int = 8
+    DEXSCREENER_MIN_LIQUIDITY_USD: float = 50000.0
     
     # Trading Configuration
     DEFAULT_CAPITAL: float = 10000.0
@@ -87,19 +97,22 @@ class Settings(BaseSettings):
         "momentum", "mean_reversion", "technical_analysis"
     ]
     
-    @validator('DEFAULT_CAPITAL', 'MAX_POSITION_SIZE', 'STOP_LOSS_PERCENTAGE', 'TAKE_PROFIT_PERCENTAGE')
+    @field_validator('DEFAULT_CAPITAL', 'MAX_POSITION_SIZE', 'STOP_LOSS_PERCENTAGE', 'TAKE_PROFIT_PERCENTAGE')
+    @classmethod
     def validate_positive_numbers(cls, v):
         if v <= 0:
             raise ValueError('Must be positive')
         return v
     
-    @validator('MAX_POSITION_SIZE')
+    @field_validator('MAX_POSITION_SIZE')
+    @classmethod
     def validate_position_size(cls, v):
         if v > 1.0:
             raise ValueError('Position size cannot exceed 100%')
         return v
 
-    @validator('MIN_SIGNAL_CONFIDENCE')
+    @field_validator('MIN_SIGNAL_CONFIDENCE')
+    @classmethod
     def validate_confidence(cls, v):
         if v < 0 or v > 1:
             raise ValueError('MIN_SIGNAL_CONFIDENCE must be between 0 and 1')
@@ -132,9 +145,5 @@ class Settings(BaseSettings):
     def get_email_recipients(self) -> List[str]:
         return self._parse_str_list(self.EMAIL_TO)
     
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
-
 # Global settings instance
 settings = Settings()

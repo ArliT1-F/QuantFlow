@@ -6,7 +6,13 @@ All API endpoints are prefixed with `/api/v1`
 
 ## Authentication
 
-Currently, the API does not require authentication. In production, implement proper authentication.
+API key auth is enabled by default. Send the key in `X-API-Key`:
+
+```http
+X-API-Key: your_api_token
+```
+
+Set `API_AUTH_ENABLED=false` in `.env` only for trusted local development.
 
 ## Response Format
 
@@ -22,12 +28,15 @@ All responses are in JSON format with the following structure:
 
 ## Error Handling
 
-Errors return HTTP status codes and error details:
+Errors return HTTP status codes and details. Market endpoints use a structured error payload:
 
 ```json
 {
-  "detail": "Error message",
-  "status_code": 400
+  "detail": {
+    "error_code": "market.invalid_query",
+    "message": "Invalid market query parameters",
+    "errors": []
+  }
 }
 ```
 
@@ -189,6 +198,98 @@ GET /api/v1/market/data
   },
   "symbols": ["BTC-USD"],
   "timestamp": "2024-01-01T00:00:00Z"
+}
+```
+
+#### Get DexScreener Boosted Pairs
+```http
+GET /api/v1/market/dexscreener/boosts?mode=top&sort=boosts&page=1&page_size=50&chain=solana&min_liquidity=0
+```
+
+**Query Parameters:**
+- `mode`: `top` or `latest`
+- `sort`: `boosts`, `volume`, `liquidity`, `change`
+- `page`: 1-based page index
+- `page_size`: 5 to 250
+- `chain` (optional): chain filter (`solana`, `ethereum`, ...)
+- `min_liquidity` (optional): minimum liquidity in USD
+
+**Response:**
+```json
+{
+  "results": [
+    {
+      "symbol": "ABC/USDT",
+      "name": "ABC",
+      "price": 0.0012,
+      "change_percent": 12.4,
+      "volume": 245000,
+      "liquidity": 88000,
+      "market_cap": 1200000,
+      "chain": "solana",
+      "dex": "pumpfun",
+      "pair_address": "abc_pair",
+      "url": "https://dexscreener.com/solana/abc_pair",
+      "boost_amount": 120.0,
+      "boost_count": 9
+    }
+  ],
+  "count": 1,
+  "total": 120,
+  "page": 1,
+  "page_size": 50,
+  "total_pages": 3,
+  "mode": "top",
+  "sort": "boosts",
+  "chain": "solana",
+  "min_liquidity": 0,
+  "effective_min_liquidity": 0,
+  "summary": {
+    "volume": 12000000,
+    "liquidity": 5800000,
+    "avg_change_percent": 9.12
+  },
+  "meta": {
+    "as_of": "2026-01-01T00:00:00+00:00",
+    "is_stale": false,
+    "age_seconds": 2,
+    "source_counts": {
+      "top": 30,
+      "latest": 30,
+      "profiles": 30,
+      "tokens": 120,
+      "pairs": 120
+    }
+  },
+  "timestamp": "2026-01-01T00:00:01+00:00"
+}
+```
+
+#### Market Ingestion Health
+```http
+GET /api/v1/market/health
+```
+
+**Response:**
+```json
+{
+  "service": "dexscreener",
+  "enabled": true,
+  "telemetry": {
+    "boost_requests": 42,
+    "fetch_success": 40,
+    "fetch_error": 2,
+    "cache_hit": 18,
+    "stale_fallback": 1,
+    "fetch_retry": 7,
+    "fetch_timeout": 1,
+    "fetch_requests": 91,
+    "fetch_client_errors": 2
+  },
+  "cache_entries": 12,
+  "last_refresh": "2026-01-01T00:00:00+00:00",
+  "last_error": null,
+  "timestamp": "2026-01-01T00:00:01+00:00"
 }
 ```
 

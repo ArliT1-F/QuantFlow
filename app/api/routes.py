@@ -3,8 +3,9 @@ API routes for the trading bot
 """
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from typing import Dict, List, Optional, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 import logging
+from pydantic import ValidationError
 
 from app.services.trading_engine import TradingEngine
 from app.services.data_service import DataService
@@ -15,6 +16,11 @@ from app.services.backtest_service import BacktestService
 from app.services.runtime_settings_service import RuntimeSettingsService
 from app.core.config import settings
 from app.api.security import require_api_key
+from app.api.schemas import (
+    DexScreenerBoostQuery,
+    DexScreenerBoostResponse,
+    MarketHealthResponse,
+)
 import os
 from collections import deque
 
@@ -31,6 +37,20 @@ risk_manager: Optional[RiskManager] = None
 notification_service: Optional[NotificationService] = None
 backtest_service: Optional[BacktestService] = None
 runtime_settings_service = RuntimeSettingsService()
+
+
+def utcnow_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def market_http_error(status_code: int, error_code: str, message: str, errors: Optional[List[Dict[str, Any]]] = None):
+    detail: Dict[str, Any] = {
+        "error_code": error_code,
+        "message": message,
+    }
+    if errors:
+        detail["errors"] = errors
+    raise HTTPException(status_code=status_code, detail=detail)
 
 def set_services(te: TradingEngine, ds: DataService, pm: PortfolioManager, 
                 rm: RiskManager, ns: NotificationService, bs: Optional[BacktestService] = None):
@@ -50,13 +70,29 @@ async def get_trading_status():
     if not trading_engine:
         raise HTTPException(status_code=503, detail="Trading engine not available")
     
+    market_source = "Offline"
+    market_chain = settings.DEXSCREENER_CHAIN.strip().lower()
+    if settings.DEXSCREENER_ENABLED:
+        market_source = f"DexScreener ({market_chain})" if market_chain else "DexScreener"
+    elif settings.OKX_ENABLED and settings.OKX_MARKET_DATA_ENABLED:
+        market_source = "OKX"
+    elif settings.YAHOO_FINANCE_ENABLED:
+        market_source = "Yahoo Finance"
+    elif settings.ALPHA_VANTAGE_ENABLED:
+        market_source = "Alpha Vantage"
+
     return {
         "status": trading_engine.state.value,
         "is_running": trading_engine.is_running(),
         "strategies": list(trading_engine.strategies.keys()),
-        "okx_enabled": settings.OKX_ENABLED,
+        "market_source": market_source,
+        "market_chain": market_chain,
+        "okx_enabled": settings.OKX_ENABLED and settings.OKX_MARKET_DATA_ENABLED,
         "okx_demo": settings.OKX_DEMO_TRADING,
-        "timestamp": datetime.utcnow().isoformat()
+        "dexscreener_enabled": settings.DEXSCREENER_ENABLED,
+        "yahoo_enabled": settings.YAHOO_FINANCE_ENABLED,
+        "alpha_vantage_enabled": settings.ALPHA_VANTAGE_ENABLED,
+        "timestamp": utcnow_iso()
     }
 
 @api_router.post("/trading/start")
@@ -96,7 +132,7 @@ async def get_portfolio_overview():
         metrics = await portfolio_manager.get_performance_metrics()
         return {
             "portfolio_metrics": metrics,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utcnow_iso()
         }
     except Exception as e:
         logger.error(f"Error getting portfolio overview: {e}")
@@ -113,7 +149,7 @@ async def get_portfolio_positions():
         return {
             "positions": positions,
             "count": len(positions),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utcnow_iso()
         }
     except Exception as e:
         logger.error(f"Error getting portfolio positions: {e}")
@@ -130,7 +166,7 @@ async def get_trading_history(limit: int = 100):
         return {
             "trades": trades,
             "count": len(trades),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utcnow_iso()
         }
     except Exception as e:
         logger.error(f"Error getting trading history: {e}")
@@ -147,7 +183,7 @@ async def get_portfolio_performance(limit: int = 100):
         return {
             "performance": performance,
             "count": len(performance),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utcnow_iso()
         }
     except Exception as e:
         logger.error(f"Error getting portfolio performance: {e}")
@@ -165,11 +201,134 @@ async def get_market_data():
         return {
             "market_data": data,
             "symbols": list(data.keys()),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utcnow_iso()
         }
     except Exception as e:
         logger.error(f"Error getting market data: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/market/dexscreener/boosts", response_model=DexScreenerBoostResponse)
+async def get_dexscreener_boosts(
+    limit: Optional[str] = None,
+    page: str = "1",
+    page_size: str = "50",
+    mode: str = "top",
+    sort: str = "boosts",
+    chain: str = "",
+    min_liquidity: Optional[str] = None
+):
+    """Get DexScreener boosted tokens with market data."""
+    if not data_service:
+        market_http_error(503, "market.unavailable", "Data service not available")
+    if not settings.DEXSCREENER_ENABLED:
+        market_http_error(503, "market.source_disabled", "DexScreener is not enabled")
+
+    try:
+        query = DexScreenerBoostQuery(
+            limit=limit,
+            page=page,
+            page_size=page_size,
+            mode=mode,
+            sort=sort,
+            chain=chain,
+            min_liquidity=min_liquidity,
+        )
+    except ValidationError as error:
+        market_http_error(422, "market.invalid_query", "Invalid market query parameters", error.errors())
+
+    try:
+        selected_page_size = query.limit if query.limit is not None else query.page_size
+        requested_min_liquidity = (
+            query.min_liquidity
+            if query.min_liquidity is not None
+            else settings.DEXSCREENER_MIN_LIQUIDITY_USD
+        )
+        payload = await data_service.get_dexscreener_boosted_pairs(
+            page=query.page,
+            page_size=selected_page_size,
+            mode=query.mode,
+            sort_by=query.sort,
+            chain=query.chain,
+            min_liquidity=requested_min_liquidity
+        )
+        effective_min_liquidity = requested_min_liquidity
+
+        # Auto-relax liquidity floor for richer results when user didn't pin a value.
+        # Goal: avoid "only a few rows" while still preferring cleaner liquidity.
+        if query.min_liquidity is None and requested_min_liquidity > 0:
+            desired_min_results = min(max(int(selected_page_size) // 2, 12), int(selected_page_size))
+            best_payload = payload
+            best_min_liquidity = requested_min_liquidity
+            best_total = int(payload.get("total", 0))
+
+            if best_total < desired_min_results:
+                for fallback_min in (10000.0, 5000.0, 1000.0, 0.0):
+                    if fallback_min >= best_min_liquidity:
+                        continue
+                    candidate = await data_service.get_dexscreener_boosted_pairs(
+                        page=query.page,
+                        page_size=selected_page_size,
+                        mode=query.mode,
+                        sort_by=query.sort,
+                        chain=query.chain,
+                        min_liquidity=fallback_min
+                    )
+                    candidate_total = int(candidate.get("total", 0))
+                    if candidate_total > best_total:
+                        best_payload = candidate
+                        best_total = candidate_total
+                        best_min_liquidity = fallback_min
+                    if best_total >= desired_min_results:
+                        break
+
+            payload = best_payload
+            effective_min_liquidity = best_min_liquidity
+
+        total = int(payload.get("total", 0))
+        size = max(int(selected_page_size), 1)
+        total_pages = (total + size - 1) // size
+
+        return DexScreenerBoostResponse(
+            results=payload.get("items", []),
+            count=len(payload.get("items", [])),
+            total=total,
+            page=max(query.page, 1),
+            page_size=size,
+            total_pages=total_pages,
+            mode=query.mode,
+            sort=query.sort,
+            chain=query.chain or settings.DEXSCREENER_CHAIN,
+            min_liquidity=requested_min_liquidity,
+            effective_min_liquidity=effective_min_liquidity,
+            summary=payload.get("summary", {}),
+            meta=payload.get("meta", {
+                "as_of": utcnow_iso(),
+                "is_stale": True,
+                "age_seconds": 0,
+                "source_counts": {},
+            }),
+            timestamp=utcnow_iso()
+        ).model_dump()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting DexScreener boosts: {e}")
+        market_http_error(500, "market.fetch_failed", str(e))
+
+
+@api_router.get("/market/health", response_model=MarketHealthResponse)
+async def get_market_health():
+    if not data_service:
+        market_http_error(503, "market.unavailable", "Data service not available")
+
+    try:
+        payload = data_service.get_market_health()
+        return MarketHealthResponse(**payload).model_dump()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting market health: {e}")
+        market_http_error(500, "market.health_failed", str(e))
 
 @api_router.get("/market/data/{symbol}")
 async def get_symbol_data(symbol: str):
@@ -185,7 +344,7 @@ async def get_symbol_data(symbol: str):
         return {
             "symbol": symbol.upper(),
             "data": data,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utcnow_iso()
         }
     except HTTPException:
         raise
@@ -212,7 +371,7 @@ async def get_historical_data(symbol: str, period: str = "1y"):
             "period": period,
             "data": data_dict,
             "count": len(data_dict),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utcnow_iso()
         }
     except HTTPException:
         raise
@@ -231,7 +390,7 @@ async def get_risk_metrics():
         metrics = risk_manager.get_risk_metrics()
         return {
             "risk_metrics": metrics,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utcnow_iso()
         }
     except Exception as e:
         logger.error(f"Error getting risk metrics: {e}")
@@ -245,7 +404,7 @@ async def get_trading_settings():
         runtime = runtime_settings_service.get_trading_settings()
         return {
             "settings": runtime_settings_service.to_percent_response(runtime),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utcnow_iso()
         }
     except Exception as e:
         logger.error(f"Error getting trading settings: {e}")
@@ -263,7 +422,7 @@ async def update_trading_settings(payload: Dict[str, Any]):
         return {
             "message": "Trading settings updated successfully",
             "settings": runtime_settings_service.to_percent_response(runtime),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utcnow_iso()
         }
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -304,7 +463,7 @@ async def get_strategies():
         return {
             "strategies": strategies,
             "count": len(strategies),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utcnow_iso()
         }
     except Exception as e:
         logger.error(f"Error getting strategies: {e}")
@@ -326,7 +485,7 @@ async def get_strategy_performance(strategy_name: str):
         return {
             "strategy": strategy_name,
             "performance": performance,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utcnow_iso()
         }
     except HTTPException:
         raise
@@ -343,7 +502,7 @@ async def get_trading_events():
     return {
         "events": list(trading_engine.recent_events),
         "count": len(trading_engine.recent_events),
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": utcnow_iso()
     }
 
 # Backtest Routes
@@ -367,7 +526,7 @@ async def run_backtest(payload: Dict[str, Any]):
         )
         return {
             "backtest": result,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utcnow_iso()
         }
     except Exception as e:
         logger.error(f"Error running backtest: {e}")
@@ -412,7 +571,7 @@ async def system_health():
             "risk_manager": risk_manager is not None,
             "notification_service": notification_service is not None,
             "backtest_service": backtest_service is not None,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utcnow_iso()
         }
         
         # Overall health
@@ -444,7 +603,7 @@ async def get_system_logs(limit: int = 100):
         return {
             "logs": logs,
             "count": len(logs),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utcnow_iso()
         }
         
     except Exception as e:
