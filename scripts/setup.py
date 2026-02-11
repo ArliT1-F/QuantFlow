@@ -8,6 +8,9 @@ BASE_DIR = Path(__file__).parent.resolve()
 VENV_DIR = BASE_DIR / "venv"
 
 
+def in_virtualenv():
+    return sys.prefix != sys.base_prefix
+
 def run_command(command, shell=False):
     try:
         subprocess.check_call(command, shell=shell)
@@ -36,20 +39,28 @@ def check_python():
 
 
 def create_venv():
+    if in_virtualenv():
+        print("📦 Virtual environment already active — skipping creation")
+        return
+
+    if VENV_DIR.exists():
+        print("📦 Virtual environment already exists")
+        return
+
     print("📦 Creating virtual environment...")
-    run_command([sys.executable, "-m", "venv", "venv"])
+    run_command([sys.executable, "-m", "venv", str(VENV_DIR)])
 
 
-def install_dependencies(pip_path):
+
+def install_dependencies(python_path):
     print("⬆️ Upgrading pip...")
-    run_command([str(pip_path), "install", "--upgrade", "pip"])
+    run_command([str(python_path), "-m", "pip", "install", "--upgrade", "pip"])
 
     print("📚 Installing dependencies...")
     if (BASE_DIR / "requirements.txt").exists():
-        run_command([str(pip_path), "install", "-r", "requirements.txt"])
+        run_command([str(python_path), "-m", "pip", "install", "-r", "requirements.txt"])
     else:
         print("⚠️ requirements.txt not found")
-
 
 def create_directories():
     print("📁 Creating directories...")
@@ -136,7 +147,7 @@ def main():
 
     python_path, pip_path = get_venv_paths()
 
-    install_dependencies(pip_path)
+    install_dependencies(python_path)
     create_directories()
     create_env_file()
     create_log_file()

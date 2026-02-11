@@ -4,13 +4,13 @@ import subprocess
 import platform
 from pathlib import Path
 
-BASE_DIR = Path(__file__).parent.resolve()
-VENV_DIR = BASE_DIR / "venv"
+BASE_DIR = Path(__file__).resolve().parent.parent
+VENV_DIR = BASE_DIR / "scripts" / "venv"
 
 
-def run_command(command):
+def run_command(command, cwd=None):
     try:
-        subprocess.check_call(command)
+        subprocess.check_call(command, cwd=cwd)
     except subprocess.CalledProcessError:
         print(f"❌ Command failed: {' '.join(command)}")
         sys.exit(1)
@@ -75,7 +75,10 @@ def start_app(python_path):
     print("📚 API Docs:  http://localhost:8000/docs")
     print("\n⚠️ Press Ctrl+C to stop\n")
 
-    run_command([str(python_path), "main.py"])
+    run_command(
+        [str(python_path), "main.py"],
+        cwd=BASE_DIR
+    )
 
 
 def main():
