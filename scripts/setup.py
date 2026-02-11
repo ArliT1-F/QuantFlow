@@ -4,15 +4,15 @@ import subprocess
 import platform
 from pathlib import Path
 
-BASE_DIR = Path(__file__).parent.resolve()
+BASE_DIR = Path(__file__).resolve().parent.parent
 VENV_DIR = BASE_DIR / "venv"
 
 
 def run_command(command, shell=False):
     try:
-        subprocess.check_call(command, shell=shell)
+        subprocess.check_call(command, shell=shell, cwd=BASE_DIR)
     except subprocess.CalledProcessError:
-        print(f"❌ Command failed: {' '.join(command)}")
+        print(f"❌ Command failed: {' '.join(map(str, command))}")
         sys.exit(1)
 
 
@@ -37,7 +37,7 @@ def check_python():
 
 def create_venv():
     print("📦 Creating virtual environment...")
-    run_command([sys.executable, "-m", "venv", "venv"])
+    run_command([sys.executable, "-m", "venv", str(VENV_DIR)])
 
 
 def install_dependencies(pip_path):

@@ -4,15 +4,15 @@ import subprocess
 import platform
 from pathlib import Path
 
-BASE_DIR = Path(__file__).parent.resolve()
+BASE_DIR = Path(__file__).resolve().parent.parent
 VENV_DIR = BASE_DIR / "venv"
 
 
 def run_command(command):
     try:
-        subprocess.check_call(command)
+        subprocess.check_call(command, cwd=BASE_DIR)
     except subprocess.CalledProcessError:
-        print(f"❌ Command failed: {' '.join(command)}")
+        print(f"❌ Command failed: {' '.join(map(str, command))}")
         sys.exit(1)
 
 

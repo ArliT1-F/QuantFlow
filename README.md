@@ -67,7 +67,16 @@ An educational, **paper-trading** crypto/coin system with real-time data feeds, 
 ```bash
 git clone https://github.com/ArliT1-F/QuantFlow
 cd QuantFlow
+```
+
+**Linux (Mint/Ubuntu/Debian):**
+```bash
 ./scripts/setup.sh
+```
+
+**Windows (PowerShell/CMD):**
+```bash
+python scripts/setup.py
 ```
 
 ### 2. Configure Environment
@@ -133,12 +142,22 @@ GRANT ALL PRIVILEGES ON DATABASE trading_bot TO trading_user;
 ```
 
 ### 4. Run the Bot
+**Linux (Mint/Ubuntu/Debian):**
 ```bash
 # Ensure schema is current
 venv/bin/python -m alembic upgrade head
 
 # Start app
 ./scripts/run.sh
+```
+
+**Windows (PowerShell/CMD):**
+```bash
+# Ensure schema is current
+venv\Scripts\python -m alembic upgrade head
+
+# Start app
+python scripts/run.py
 ```
 Trading is **stopped by default** for safety. Start it from the dashboard or call `POST /api/v1/trading/start`.
 

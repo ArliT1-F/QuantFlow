@@ -38,10 +38,17 @@ If you want live or demo trading through OKX:
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd automated-coin-trading-bot
+cd QuantFlow
+```
 
-# Run the setup script
+Linux (Mint/Ubuntu/Debian):
+```bash
 ./scripts/setup.sh
+```
+
+Windows (PowerShell/CMD):
+```bash
+python scripts/setup.py
 ```
 
 ### 2. Configure Environment
@@ -81,9 +88,14 @@ GRANT ALL PRIVILEGES ON DATABASE trading_bot TO trading_user;
 
 ### 4. Run the Bot
 
+Linux (Mint/Ubuntu/Debian):
 ```bash
-# Start the trading bot
 ./scripts/run.sh
+```
+
+Windows (PowerShell/CMD):
+```bash
+python scripts/run.py
 ```
 Trading is **stopped by default** for safety. Start it from the dashboard or call `POST /api/v1/trading/start`.
 
