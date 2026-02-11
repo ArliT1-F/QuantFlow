@@ -1,10 +1,9 @@
-import os
 import sys
 import subprocess
 import platform
 from pathlib import Path
 
-BASE_DIR = Path(__file__).parent.resolve()
+BASE_DIR = Path(__file__).resolve().parent.parent
 VENV_DIR = BASE_DIR / "venv"
 
 
@@ -22,12 +21,10 @@ def run_command(command, shell=False):
 def get_venv_paths():
     if platform.system() == "Windows":
         python_path = VENV_DIR / "Scripts" / "python.exe"
-        pip_path = VENV_DIR / "Scripts" / "pip.exe"
     else:
         python_path = VENV_DIR / "bin" / "python"
-        pip_path = VENV_DIR / "bin" / "pip"
 
-    return python_path, pip_path
+    return python_path
 
 
 def check_python():
@@ -145,7 +142,7 @@ def main():
     check_python()
     create_venv()
 
-    python_path, pip_path = get_venv_paths()
+    python_path = get_venv_paths()
 
     install_dependencies(python_path)
     create_directories()

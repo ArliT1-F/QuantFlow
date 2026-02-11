@@ -42,6 +42,9 @@ cd automated-coin-trading-bot
 
 # Run the setup script
 ./scripts/setup.sh
+
+# Windows (PowerShell/CMD)
+python scripts/setup.py
 ```
 
 ### 2. Configure Environment
@@ -84,6 +87,9 @@ GRANT ALL PRIVILEGES ON DATABASE trading_bot TO trading_user;
 ```bash
 # Start the trading bot
 ./scripts/run.sh
+
+# Windows (PowerShell/CMD)
+python scripts/run.py
 ```
 Trading is **stopped by default** for safety. Start it from the dashboard or call `POST /api/v1/trading/start`.
 
@@ -92,6 +98,10 @@ Trading is **stopped by default** for safety. Start it from the dashboard or cal
 Open your browser and go to:
 - **Dashboard**: http://localhost:8000
 - **API Documentation**: http://localhost:8000/docs
+
+### Platform-specific setup commands
+- **Linux Mint / Linux**: `./scripts/setup.sh` then `./scripts/run.sh`
+- **Windows (PowerShell/CMD)**: `python scripts/setup.py` then `python scripts/run.py`
 
 ## Features Overview
 

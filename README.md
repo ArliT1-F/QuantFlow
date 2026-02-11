@@ -68,6 +68,8 @@ An educational, **paper-trading** crypto/coin system with real-time data feeds, 
 git clone https://github.com/ArliT1-F/QuantFlow
 cd QuantFlow
 ./scripts/setup.sh
+# Windows (PowerShell/CMD)
+python scripts/setup.py
 ```
 
 ### 2. Configure Environment
@@ -139,6 +141,8 @@ venv/bin/python -m alembic upgrade head
 
 # Start app
 ./scripts/run.sh
+# Windows (PowerShell/CMD)
+python scripts/run.py
 ```
 Trading is **stopped by default** for safety. Start it from the dashboard or call `POST /api/v1/trading/start`.
 
@@ -146,6 +150,11 @@ Trading is **stopped by default** for safety. Start it from the dashboard or cal
 - **Web Dashboard**: http://localhost:8000
 - **API Documentation**: http://localhost:8000/docs
 - **Health Check**: http://localhost:8000/health
+
+### Cross-platform launch options
+- **Linux/macOS**: use `scripts/setup.sh` and `scripts/run.sh`.
+- **Windows (PowerShell/CMD)**: use `python scripts/setup.py` and `python scripts/run.py`.
+- The Python scripts use OS-specific virtual environment paths automatically (`venv/bin/python` on Linux/macOS and `venv\Scripts\python.exe` on Windows).
 
 ## 📈 Trading Strategies
 

@@ -5,7 +5,7 @@ import platform
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-VENV_DIR = BASE_DIR / "scripts" / "venv"
+VENV_DIR = BASE_DIR / "venv"
 
 
 def run_command(command, cwd=None):
@@ -19,8 +19,7 @@ def run_command(command, cwd=None):
 def get_venv_python():
     if platform.system() == "Windows":
         return VENV_DIR / "Scripts" / "python.exe"
-    else:
-        return VENV_DIR / "bin" / "python"
+    return VENV_DIR / "bin" / "python"
 
 
 def check_venv():
@@ -86,6 +85,9 @@ def main():
     check_env_file()
 
     python_path = get_venv_python()
+    if not python_path.exists():
+        print(f"❌ Virtual environment Python not found at {python_path}")
+        sys.exit(1)
 
     check_database(python_path)
     apply_migrations(python_path)
