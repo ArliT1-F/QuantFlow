@@ -262,14 +262,36 @@ class RiskManager:
             
             # Use the smaller of the two limits
             final_position_size = min(position_size, max_units_by_value)
+
+            fixed_notional_enabled = settings.FIXED_TRADE_NOTIONAL_USD > 0 and signal.price > 0
+
+            # Optional fixed-notional sizing for small, consistent tickets.
+            if fixed_notional_enabled:
+                fixed_units = settings.FIXED_TRADE_NOTIONAL_USD / signal.price
+                final_position_size = min(final_position_size, fixed_units)
+
+            # Ensure the order fits available cash in paper/live portfolio execution.
+            # This prevents repeated execution rejects when fees/slippage leave cash
+            # slightly below the risk-model notional.
+            if self.portfolio_manager and signal.price > 0:
+                available_cash = float(max(getattr(self.portfolio_manager, "cash_balance", 0.0), 0.0))
+                fee_buffer = 1.002  # execution fee/slippage buffer
+                max_units_by_cash = available_cash / (signal.price * fee_buffer)
+                final_position_size = min(final_position_size, max_units_by_cash)
             
             # Ensure minimum tradable size/notional
             if final_position_size <= 0:
                 return 0.0
             # Cap by max units but also enforce minimum units and notional
             final_position_size = max(final_position_size, settings.MIN_POSITION_UNITS)
-            if signal.price > 0 and final_position_size * signal.price < settings.MIN_POSITION_NOTIONAL:
+            if (not fixed_notional_enabled) and signal.price > 0 and final_position_size * signal.price < settings.MIN_POSITION_NOTIONAL:
                 final_position_size = settings.MIN_POSITION_NOTIONAL / signal.price
+            if self.portfolio_manager and signal.price > 0:
+                available_cash = float(max(getattr(self.portfolio_manager, "cash_balance", 0.0), 0.0))
+                if final_position_size * signal.price > available_cash:
+                    final_position_size = available_cash / signal.price
+                if (not fixed_notional_enabled) and final_position_size * signal.price < settings.MIN_POSITION_NOTIONAL:
+                    return 0.0
             return float(final_position_size)
             
         except Exception as e:

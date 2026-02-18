@@ -22,6 +22,13 @@ class Trade(Base):
     stop_loss = Column(Float, nullable=True)
     take_profit = Column(Float, nullable=True)
     fees = Column(Float, default=0.0)
+    execution_mode = Column(String(16), nullable=True)  # demo | live
+    tx_signature = Column(String(128), nullable=True)
+    request_id = Column(String(64), nullable=True)
+    chain_id = Column(String(32), nullable=True)
+    base_token_address = Column(String(64), nullable=True)
+    quote_token_address = Column(String(64), nullable=True)
+    pair_address = Column(String(128), nullable=True)
     notes = Column(Text, nullable=True)
     
     # Relationships

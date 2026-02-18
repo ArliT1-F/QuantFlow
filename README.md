@@ -1,6 +1,6 @@
 # 🤖 Automated Coin Trading Bot **QuantFlow**
 
-An educational, **paper-trading** crypto/coin system with real-time data feeds, multiple strategies, risk controls, and a modern web dashboard. It simulates trades locally and does **not** place real broker orders.
+A Solana-focused trading bot using DexScreener market data, multi-strategy signal generation, and configurable risk controls. It supports `demo` execution and `live` execution through a Solana executor endpoint.
 
 ![Python](https://img.shields.io/badge/python-v3.8+-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.104.1-green.svg)
@@ -12,15 +12,15 @@ An educational, **paper-trading** crypto/coin system with real-time data feeds, 
 ### 🎯 Core Trading Engine
 - **Multi-Strategy Framework**: Momentum, Mean Reversion, and Technical Analysis strategies
 - **Real-time Signal Generation**: Continuous market analysis and signal production
-- **Simulated Trade Execution**: Paper trading with local portfolio updates
+- **Solana Execution Modes**: `demo` simulation or `live` execution via Solana executor
 - **Strategy Performance Tracking**: Individual strategy metrics and optimization
 
 ### 📊 Data Integration
-- **Multiple Data Sources**: Yahoo Finance (default), Alpha Vantage (optional, limited crypto support), and OKX (recommended for crypto)
+- **Single Market Data Source**: DexScreener (Solana-focused)
 - **DexScreener Aggregation**: Merges `top` + `latest` boosts, enriches with token profiles, and deduplicates by pair address
 - **Real-time Market Data**: Live price feeds and volume
 - **Technical Indicators**: RSI, MACD, Bollinger Bands, Moving Averages
-- **Historical Data**: Backtesting and analysis capabilities
+- **Token-Safety Filters**: Liquidity, volume, age, blacklist, and duplicate-symbol filtering
 
 ### 🛡️ Risk Management
 - **Position Sizing**: Automatic calculation based on portfolio risk
@@ -78,31 +78,32 @@ Edit `.env` file:
 # Database
 DATABASE_URL=postgresql://username:password@localhost:5432/trading_bot
 
-# API Keys (Optional)
-ALPHA_VANTAGE_ENABLED=false
-ALPHA_VANTAGE_API_KEY=your_key_here
+# Solana Execution
+SOLANA_TRADING_MODE=demo
+SOLANA_EXECUTOR_URL=
+SOLANA_EXECUTOR_REQUIRE_AUTH=true
+SOLANA_EXECUTOR_AUTH_HEADER=X-Executor-Key
+SOLANA_EXECUTOR_API_KEY=
+SOLANA_EXECUTOR_TIMEOUT_SECONDS=20
+SOLANA_EXECUTOR_MAX_RETRIES=2
+SOLANA_EXECUTOR_BACKOFF_SECONDS=0.4
+SOLANA_WALLET_PUBLIC_KEY=
+SOLANA_QUOTE_MINT=So11111111111111111111111111111111111111112
+SOLANA_SLIPPAGE_BPS=100
 
-# OKX (Optional - Live/Demo Trading + Market Data)
-OKX_ENABLED=false
-OKX_MARKET_DATA_ENABLED=false
-OKX_TRADING_ENABLED=false
-OKX_DEMO_TRADING=true
-OKX_BASE_URL=https://www.okx.com
-OKX_API_KEY=your_okx_api_key_here
-OKX_SECRET_KEY=your_okx_secret_here
-OKX_PASSPHRASE=your_okx_passphrase_here
-OKX_QUOTE_CCY=USDT
-
-# DexScreener (Optional - market data only)
-DEXSCREENER_ENABLED=false
+# DexScreener (market data)
+DEXSCREENER_ENABLED=true
 DEXSCREENER_CHAIN=
 DEXSCREENER_QUOTE_SYMBOL=USDT
 DEXSCREENER_TIMEOUT_SECONDS=10
 DEXSCREENER_MAX_RETRIES=3
 DEXSCREENER_MAX_CONCURRENCY=8
 DEXSCREENER_MIN_LIQUIDITY_USD=50000
-
-# Tip: For stable crypto data, set OKX_MARKET_DATA_ENABLED=true and set YAHOO_FINANCE_ENABLED=false.
+DEXSCREENER_MIN_VOLUME_24H_USD=1000000
+DEXSCREENER_MIN_TOKEN_AGE_HOURS=24
+DEXSCREENER_REQUIRE_UNIQUE_BASE_SYMBOL=true
+DEXSCREENER_BLOCKED_TOKEN_ADDRESSES=
+DEXSCREENER_BLOCKED_PAIR_ADDRESSES=
 
 # Trading Configuration
 DEFAULT_CAPITAL=10000
@@ -240,7 +241,6 @@ GET  /api/v1/market/data
 GET  /api/v1/market/dexscreener/boosts
 GET  /api/v1/market/health
 GET  /api/v1/market/data/{symbol}
-GET  /api/v1/market/historical/{symbol}
 
 # Risk Management
 GET  /api/v1/risk/metrics
@@ -253,9 +253,6 @@ POST /api/v1/settings/trading
 # Strategies
 GET  /api/v1/strategies
 GET  /api/v1/strategies/{name}/performance
-
-# Backtesting
-POST /api/v1/backtest/run
 
 # Notifications
 POST /api/v1/notifications/test
@@ -420,8 +417,8 @@ pytest tests/
 
 2. **Market Data Not Loading**
    - Check internet connection
-   - Verify API keys
-   - Check Yahoo Finance access
+   - Ensure `DEXSCREENER_ENABLED=true`
+   - Verify `DEXSCREENER_CHAIN` and quote symbol
 
 3. **Trading Not Starting**
    - Check all services are running
@@ -478,8 +475,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🙏 Acknowledgments
 
-- Yahoo Finance for market data
-- Alpha Vantage for additional data sources
+- DexScreener for market data
 - FastAPI for the web framework
 - PostgreSQL for database support
 - All open-source contributors

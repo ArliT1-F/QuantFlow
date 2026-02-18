@@ -44,7 +44,7 @@ def check_database(python_path):
     check_script = """
 import os
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(override=True)
 
 db_url = os.getenv("DATABASE_URL", "")
 if not db_url:

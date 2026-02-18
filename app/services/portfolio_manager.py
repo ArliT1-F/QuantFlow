@@ -7,7 +7,7 @@ from datetime import datetime
 import numpy as np
 from app.core.database import SessionLocal
 from app.core.config import settings
-from app.services.okx_client import OkxClient
+from app.services.solana_execution_service import SolanaExecutionService
 from app.models.portfolio import Portfolio, PortfolioSnapshot
 from app.models.trade import Trade, Position
 
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class PortfolioManager:
     """Portfolio management system for tracking positions and performance"""
     
-    def __init__(self, okx_client: Optional[OkxClient] = None):
+    def __init__(self, solana_execution_service: Optional[SolanaExecutionService] = None):
         self.portfolio_id = None
         self.cash_balance = 0.0
         self.total_value = 0.0
@@ -26,7 +26,7 @@ class PortfolioManager:
         self.trade_history = []
         self.performance_metrics = {}
         self.initialized = False
-        self.okx_client = okx_client
+        self.solana_execution_service = solana_execution_service or SolanaExecutionService()
         self._last_snapshot_at: Optional[datetime] = None
         self._snapshot_interval = settings.PORTFOLIO_SNAPSHOT_INTERVAL
         
@@ -141,6 +141,13 @@ class PortfolioManager:
             
             # Calculate trade value
             trade_value = quantity * price
+
+            # Hard guard: reject oversized BUY notional when cap is configured.
+            if side == "BUY" and settings.MAX_BUY_NOTIONAL_USD > 0 and trade_value > settings.MAX_BUY_NOTIONAL_USD:
+                logger.warning(
+                    f"Buy notional exceeds cap for {symbol}: {trade_value} > {settings.MAX_BUY_NOTIONAL_USD}"
+                )
+                return None
             
             # Check if we have enough cash for buy orders
             if side == "BUY" and trade_value > self.cash_balance:
@@ -186,23 +193,11 @@ class PortfolioManager:
             side = trade_data["side"]
             quantity = trade_data["quantity"]
             price = trade_data["price"]
-            
-            # Place live order if enabled
-            if settings.OKX_ENABLED and settings.OKX_TRADING_ENABLED and self.okx_client:
-                inst_id = self._okx_inst_id(symbol)
-                okx_result = self.okx_client.place_market_order(
-                    inst_id=inst_id,
-                    side=side.lower(),
-                    size=str(quantity),
-                    td_mode="cash"
-                )
-                if okx_result.get("code") != "0":
-                    logger.error(f"OKX order failed: {okx_result}")
-                    return None
-
-            # Simulate trade execution (paper trading or post-live order tracking)
-            execution_price = price  # Assume execution at signal price
-            fees = quantity * execution_price * 0.001  # 0.1% fee
+            execution = self.solana_execution_service.execute(trade_data)
+            if not execution:
+                return None
+            execution_price = float(execution.get("execution_price") or price)
+            fees = float(execution.get("fees") or (quantity * execution_price * 0.001))
             
             trade_result = {
                 "symbol": symbol,
@@ -211,10 +206,17 @@ class PortfolioManager:
                 "price": execution_price,
                 "fees": fees,
                 "timestamp": datetime.utcnow(),
-                "status": "FILLED",
+                "status": str(execution.get("status") or "FILLED"),
                 "strategy": trade_data.get("strategy", ""),
                 "stop_loss": trade_data.get("stop_loss"),
-                "take_profit": trade_data.get("take_profit")
+                "take_profit": trade_data.get("take_profit"),
+                "tx_signature": str(execution.get("tx_signature") or ""),
+                "execution_mode": str(execution.get("execution_mode") or "demo"),
+                "request_id": str(execution.get("request_id") or trade_data.get("request_id") or ""),
+                "chain_id": "solana",
+                "base_token_address": str(trade_data.get("base_token_address") or ""),
+                "quote_token_address": str(trade_data.get("quote_token_address") or ""),
+                "pair_address": str(trade_data.get("pair_address") or ""),
             }
             
             return trade_result
@@ -223,14 +225,6 @@ class PortfolioManager:
             logger.error(f"Error processing trade execution: {e}")
             return None
 
-    def _okx_inst_id(self, symbol: str) -> str:
-        if "-" in symbol:
-            base, quote = symbol.split("-", 1)
-            if quote.upper() == "USD":
-                quote = settings.OKX_QUOTE_CCY
-            return f"{base.upper()}-{quote.upper()}"
-        return f"{symbol.upper()}-{settings.OKX_QUOTE_CCY}"
-    
     async def _update_portfolio_after_trade(self, trade_result: Dict[str, Any]) -> float:
         """Update portfolio after trade execution"""
         try:
@@ -331,6 +325,13 @@ class PortfolioManager:
                 fees=trade_result["fees"],
                 stop_loss=trade_result.get("stop_loss"),
                 take_profit=trade_result.get("take_profit"),
+                execution_mode=trade_result.get("execution_mode"),
+                tx_signature=trade_result.get("tx_signature"),
+                request_id=trade_result.get("request_id"),
+                chain_id=trade_result.get("chain_id"),
+                base_token_address=trade_result.get("base_token_address"),
+                quote_token_address=trade_result.get("quote_token_address"),
+                pair_address=trade_result.get("pair_address"),
                 portfolio_id=self.portfolio_id
             )
             
@@ -679,12 +680,20 @@ class PortfolioManager:
                     "side": trade.side,
                     "quantity": trade.quantity,
                     "price": trade.price,
+                    "trade_value": (trade.quantity * trade.price),
                     "timestamp": trade.timestamp.isoformat(),
                     "strategy": trade.strategy,
                     "status": trade.status,
                     "fees": trade.fees,
                     "stop_loss": trade.stop_loss,
-                    "take_profit": trade.take_profit
+                    "take_profit": trade.take_profit,
+                    "execution_mode": trade.execution_mode,
+                    "tx_signature": trade.tx_signature,
+                    "request_id": trade.request_id,
+                    "chain_id": trade.chain_id,
+                    "base_token_address": trade.base_token_address,
+                    "quote_token_address": trade.quote_token_address,
+                    "pair_address": trade.pair_address,
                 }
                 trade_history.append(trade_data)
             

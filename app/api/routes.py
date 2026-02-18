@@ -1,7 +1,7 @@
 """
 API routes for the trading bot
 """
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timezone
 import logging
@@ -12,7 +12,6 @@ from app.services.data_service import DataService
 from app.services.portfolio_manager import PortfolioManager
 from app.services.risk_manager import RiskManager
 from app.services.notification_service import NotificationService
-from app.services.backtest_service import BacktestService
 from app.services.runtime_settings_service import RuntimeSettingsService
 from app.core.config import settings
 from app.api.security import require_api_key
@@ -35,7 +34,6 @@ data_service: Optional[DataService] = None
 portfolio_manager: Optional[PortfolioManager] = None
 risk_manager: Optional[RiskManager] = None
 notification_service: Optional[NotificationService] = None
-backtest_service: Optional[BacktestService] = None
 runtime_settings_service = RuntimeSettingsService()
 
 
@@ -52,16 +50,15 @@ def market_http_error(status_code: int, error_code: str, message: str, errors: O
         detail["errors"] = errors
     raise HTTPException(status_code=status_code, detail=detail)
 
-def set_services(te: TradingEngine, ds: DataService, pm: PortfolioManager, 
-                rm: RiskManager, ns: NotificationService, bs: Optional[BacktestService] = None):
+def set_services(te: TradingEngine, ds: DataService, pm: PortfolioManager,
+                rm: RiskManager, ns: NotificationService):
     """Set global services"""
-    global trading_engine, data_service, portfolio_manager, risk_manager, notification_service, backtest_service
+    global trading_engine, data_service, portfolio_manager, risk_manager, notification_service
     trading_engine = te
     data_service = ds
     portfolio_manager = pm
     risk_manager = rm
     notification_service = ns
-    backtest_service = bs
 
 # Trading Engine Routes
 @api_router.get("/trading/status")
@@ -70,16 +67,8 @@ async def get_trading_status():
     if not trading_engine:
         raise HTTPException(status_code=503, detail="Trading engine not available")
     
-    market_source = "Offline"
+    market_source = "DexScreener" if settings.DEXSCREENER_ENABLED else "Offline"
     market_chain = settings.DEXSCREENER_CHAIN.strip().lower()
-    if settings.DEXSCREENER_ENABLED:
-        market_source = f"DexScreener ({market_chain})" if market_chain else "DexScreener"
-    elif settings.OKX_ENABLED and settings.OKX_MARKET_DATA_ENABLED:
-        market_source = "OKX"
-    elif settings.YAHOO_FINANCE_ENABLED:
-        market_source = "Yahoo Finance"
-    elif settings.ALPHA_VANTAGE_ENABLED:
-        market_source = "Alpha Vantage"
 
     return {
         "status": trading_engine.state.value,
@@ -87,11 +76,9 @@ async def get_trading_status():
         "strategies": list(trading_engine.strategies.keys()),
         "market_source": market_source,
         "market_chain": market_chain,
-        "okx_enabled": settings.OKX_ENABLED and settings.OKX_MARKET_DATA_ENABLED,
-        "okx_demo": settings.OKX_DEMO_TRADING,
+        "execution_chain": "solana",
+        "trading_mode": settings.SOLANA_TRADING_MODE,
         "dexscreener_enabled": settings.DEXSCREENER_ENABLED,
-        "yahoo_enabled": settings.YAHOO_FINANCE_ENABLED,
-        "alpha_vantage_enabled": settings.ALPHA_VANTAGE_ENABLED,
         "timestamp": utcnow_iso()
     }
 
@@ -352,33 +339,6 @@ async def get_symbol_data(symbol: str):
         logger.error(f"Error getting data for symbol {symbol}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@api_router.get("/market/historical/{symbol}")
-async def get_historical_data(symbol: str, period: str = "1y"):
-    """Get historical data for symbol"""
-    if not data_service:
-        raise HTTPException(status_code=503, detail="Data service not available")
-    
-    try:
-        data = await data_service.get_historical_data(symbol.upper(), period)
-        if data is None:
-            raise HTTPException(status_code=404, detail=f"Historical data not found for symbol {symbol}")
-        
-        # Convert DataFrame to dict for JSON response
-        data_dict = data.to_dict('records')
-        
-        return {
-            "symbol": symbol.upper(),
-            "period": period,
-            "data": data_dict,
-            "count": len(data_dict),
-            "timestamp": utcnow_iso()
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting historical data for symbol {symbol}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 # Risk Management Routes
 @api_router.get("/risk/metrics")
 async def get_risk_metrics():
@@ -502,35 +462,9 @@ async def get_trading_events():
     return {
         "events": list(trading_engine.recent_events),
         "count": len(trading_engine.recent_events),
+        "rejected_total": int(getattr(trading_engine, "rejected_signals_total", 0)),
         "timestamp": utcnow_iso()
     }
-
-# Backtest Routes
-@api_router.post("/backtest/run")
-async def run_backtest(payload: Dict[str, Any]):
-    """Run backtest for selected strategies and symbols"""
-    if not backtest_service:
-        raise HTTPException(status_code=503, detail="Backtest service not available")
-    
-    try:
-        symbols = payload.get("symbols")
-        strategies = payload.get("strategies")
-        days = int(payload.get("days", 180))
-        initial_capital = float(payload.get("initial_capital", 10000))
-
-        result = await backtest_service.run_backtest(
-            symbols=symbols,
-            days=days,
-            strategies=strategies,
-            initial_capital=initial_capital
-        )
-        return {
-            "backtest": result,
-            "timestamp": utcnow_iso()
-        }
-    except Exception as e:
-        logger.error(f"Error running backtest: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 # Notification Routes
 @api_router.post("/notifications/test")
@@ -570,7 +504,6 @@ async def system_health():
             "portfolio_manager": portfolio_manager is not None,
             "risk_manager": risk_manager is not None,
             "notification_service": notification_service is not None,
-            "backtest_service": backtest_service is not None,
             "timestamp": utcnow_iso()
         }
         
@@ -580,8 +513,7 @@ async def system_health():
             health_status["data_service"],
             health_status["portfolio_manager"],
             health_status["risk_manager"],
-            health_status["notification_service"],
-            health_status["backtest_service"]
+            health_status["notification_service"]
         ])
         
         return health_status

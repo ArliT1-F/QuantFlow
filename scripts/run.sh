@@ -28,7 +28,7 @@ echo "🗄️ Checking database connection..."
 python -c "
 import os
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(override=True)
 db_url = os.getenv('DATABASE_URL', '')
 if not db_url:
     print('❌ DATABASE_URL not set in .env file')

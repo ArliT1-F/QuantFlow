@@ -324,39 +324,6 @@ GET /api/v1/market/data/{symbol}
 }
 ```
 
-#### Get Historical Data
-```http
-GET /api/v1/market/historical/{symbol}?period=1y
-```
-
-**Parameters:**
-- `symbol`: Coin symbol
-- `period` (optional): Time period (1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max)
-
-**Response:**
-```json
-{
-  "symbol": "BTC-USD",
-  "period": "1y",
-  "data": [
-    {
-      "Date": "2023-01-01",
-      "Open": 150.00,
-      "High": 155.00,
-      "Low": 148.00,
-      "Close": 152.00,
-      "Volume": 1000000,
-      "SMA_20": 151.00,
-      "SMA_50": 150.00,
-      "RSI": 55.0,
-      "MACD": 0.5
-    }
-  ],
-  "count": 252,
-  "timestamp": "2024-01-01T00:00:00Z"
-}
-```
-
 ### Risk Management
 
 #### Get Risk Metrics
@@ -470,52 +437,6 @@ GET /api/v1/strategies/{strategy_name}/performance
     "max_drawdown": 0.05
   },
   "timestamp": "2024-01-01T00:00:00Z"
-}
-```
-
-### Backtesting
-
-#### Run Backtest
-```http
-POST /api/v1/backtest/run
-```
-
-**Request Body:**
-```json
-{
-  "symbols": ["BTC-USD", "ETH-USD"],
-  "days": 180,
-  "strategies": ["momentum", "mean_reversion", "technical_analysis"],
-  "initial_capital": 10000
-}
-```
-
-**Response:**
-```json
-{
-  "backtest": {
-    "summary": {
-      "strategies": {
-        "momentum": {
-          "avg_return_percent": 4.2,
-          "avg_max_drawdown_percent": 8.1,
-          "symbols_tested": 2
-        }
-      }
-    },
-    "strategies": {
-      "momentum": {
-        "BTC-USD": {
-          "total_return_percent": 5.1,
-          "max_drawdown_percent": 7.8,
-          "num_trades": 12,
-          "win_rate": 50.0,
-          "ending_value": 10510.0
-        }
-      }
-    }
-  },
-  "timestamp": "2026-02-07T12:00:00Z"
 }
 ```
 

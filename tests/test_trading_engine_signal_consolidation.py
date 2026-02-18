@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import datetime, timedelta
+import pytest
 
 from app.services.trading_engine import TradingEngine, TradingSignal
 from app.core.config import settings
@@ -23,6 +24,18 @@ class DummyPortfolioManager:
     def __init__(self):
         self.total_value = 10000.0
         self.positions = {}
+        self.last_trade_data = None
+
+    async def execute_trade(self, trade_data):
+        self.last_trade_data = trade_data
+        return {
+            "symbol": trade_data["symbol"],
+            "side": trade_data["side"],
+            "quantity": trade_data["quantity"],
+            "price": trade_data["price"],
+            "strategy": trade_data.get("strategy", ""),
+            "status": "FILLED",
+        }
 
 
 def _build_engine():
@@ -72,3 +85,74 @@ def test_consolidate_signals_blocks_sell_during_min_hold(monkeypatch):
     ]
     consolidated = engine._consolidate_signals(signals)
     assert consolidated == []
+
+
+@pytest.mark.asyncio
+async def test_select_active_strategies_uses_all_when_backtest_has_no_coverage(monkeypatch):
+    engine = _build_engine()
+    await engine._select_active_strategies()
+    assert engine.active_strategy_names == set(engine.strategies.keys())
+
+
+@pytest.mark.asyncio
+async def test_select_active_strategies_uses_all_when_backtest_is_flat(monkeypatch):
+    engine = _build_engine()
+    await engine._select_active_strategies()
+    assert engine.active_strategy_names == set(engine.strategies.keys())
+
+
+def test_passes_hourly_trade_limit_blocks_when_quota_is_reached(monkeypatch):
+    monkeypatch.setattr(settings, "MAX_TRADES_PER_HOUR", 1)
+    engine = _build_engine()
+    engine.trade_timestamps.append(datetime.utcnow())
+    signal = TradingSignal(
+        symbol="BTC-USD",
+        action="BUY",
+        confidence=0.9,
+        price=100.0,
+        strategy="momentum",
+        stop_loss=95.0,
+        take_profit=120.0,
+    )
+    assert engine._passes_hourly_trade_limit(signal) is False
+
+
+def test_passes_hourly_trade_limit_cleans_stale_entries(monkeypatch):
+    monkeypatch.setattr(settings, "MAX_TRADES_PER_HOUR", 1)
+    engine = _build_engine()
+    engine.trade_timestamps.append(datetime.utcnow() - timedelta(hours=2))
+    signal = TradingSignal(
+        symbol="ETH-USD",
+        action="BUY",
+        confidence=0.9,
+        price=100.0,
+        strategy="momentum",
+        stop_loss=95.0,
+        take_profit=120.0,
+    )
+    assert engine._passes_hourly_trade_limit(signal) is True
+
+
+@pytest.mark.asyncio
+async def test_execute_trade_caps_buy_notional(monkeypatch):
+    monkeypatch.setattr(settings, "ADVANCED_ENTRY_FILTER_ENABLED", False)
+    monkeypatch.setattr(settings, "ENTRY_FILTER_MIN_EXPECTED_EDGE", 0.0)
+    monkeypatch.setattr(settings, "ENTRY_FILTER_MIN_RR", 0.0)
+    monkeypatch.setattr(settings, "MAX_BUY_NOTIONAL_USD", 1.0)
+
+    engine = _build_engine()
+    signal = TradingSignal(
+        symbol="MICRO-USD",
+        action="BUY",
+        confidence=0.9,
+        price=0.0002,
+        quantity=20000.0,  # would be $4.00 without cap
+        strategy="momentum",
+        stop_loss=0.00019,
+        take_profit=0.00022,
+    )
+    result = await engine._execute_trade(signal)
+    assert result is not None
+    assert engine.portfolio_manager.last_trade_data is not None
+    notional = engine.portfolio_manager.last_trade_data["quantity"] * signal.price
+    assert notional <= 1.0 + 1e-9

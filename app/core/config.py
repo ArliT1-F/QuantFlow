@@ -4,34 +4,32 @@ Application configuration management
 import os
 import json
 from typing import Any, List, Optional
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from dotenv import load_dotenv
 
-load_dotenv()
+# Ensure repository .env values win over stale exported shell variables.
+load_dotenv(override=True)
 
 class Settings(BaseSettings):
     """Application settings"""
-    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
     
     # Database
     DATABASE_URL: str = "postgresql://username:password@localhost:5432/trading_bot"
     
-    # API Keys
-    ALPHA_VANTAGE_ENABLED: bool = False
-    ALPHA_VANTAGE_API_KEY: Optional[str] = None
-    YAHOO_FINANCE_ENABLED: bool = True
-
-    # OKX Configuration
-    OKX_ENABLED: bool = False
-    OKX_MARKET_DATA_ENABLED: bool = False
-    OKX_TRADING_ENABLED: bool = False
-    OKX_DEMO_TRADING: bool = True
-    OKX_BASE_URL: str = "https://www.okx.com"
-    OKX_API_KEY: Optional[str] = None
-    OKX_SECRET_KEY: Optional[str] = None
-    OKX_PASSPHRASE: Optional[str] = None
-    OKX_QUOTE_CCY: str = "USDT"
+    # Solana execution configuration
+    SOLANA_TRADING_MODE: str = "demo"  # demo | live
+    SOLANA_EXECUTOR_URL: str = ""
+    SOLANA_WALLET_PUBLIC_KEY: str = ""
+    SOLANA_QUOTE_MINT: str = "So11111111111111111111111111111111111111112"
+    SOLANA_SLIPPAGE_BPS: int = 100
+    SOLANA_EXECUTOR_REQUIRE_AUTH: bool = True
+    SOLANA_EXECUTOR_AUTH_HEADER: str = "X-Executor-Key"
+    SOLANA_EXECUTOR_API_KEY: str = ""
+    SOLANA_EXECUTOR_TIMEOUT_SECONDS: int = 20
+    SOLANA_EXECUTOR_MAX_RETRIES: int = 2
+    SOLANA_EXECUTOR_BACKOFF_SECONDS: float = 0.4
 
     # DEX Screener Configuration (market data only)
     DEXSCREENER_ENABLED: bool = False
@@ -41,6 +39,15 @@ class Settings(BaseSettings):
     DEXSCREENER_MAX_RETRIES: int = 3
     DEXSCREENER_MAX_CONCURRENCY: int = 8
     DEXSCREENER_MIN_LIQUIDITY_USD: float = 50000.0
+    DEXSCREENER_MIN_VOLUME_24H_USD: float = 1000000.0
+    DEXSCREENER_MIN_TOKEN_AGE_HOURS: float = 24.0
+    DEXSCREENER_REQUIRE_UNIQUE_BASE_SYMBOL: bool = True
+    DEXSCREENER_BLOCKED_TOKEN_ADDRESSES: str = ""
+    DEXSCREENER_BLOCKED_PAIR_ADDRESSES: str = ""
+    DEXSCREENER_DYNAMIC_UNIVERSE_ENABLED: bool = True
+    DEXSCREENER_DYNAMIC_UNIVERSE_SIZE: int = 30
+    DEXSCREENER_DYNAMIC_UNIVERSE_MODE: str = "top"
+    DEXSCREENER_DYNAMIC_UNIVERSE_SORT: str = "boosts"
     
     # Trading Configuration
     DEFAULT_CAPITAL: float = 10000.0
@@ -48,6 +55,7 @@ class Settings(BaseSettings):
     STOP_LOSS_PERCENTAGE: float = 0.05  # 5%
     TAKE_PROFIT_PERCENTAGE: float = 0.15  # 15%
     MAX_DAILY_TRADES: int = 10
+    MAX_TRADES_PER_HOUR: int = 200
     MIN_VOLUME: int = 0  # Minimum daily volume (0 disables hard minimum for crypto)
     
     # Risk Management
@@ -56,10 +64,26 @@ class Settings(BaseSettings):
     MAX_SECTOR_EXPOSURE: float = 0.3  # 30% max exposure to any sector
     MIN_POSITION_UNITS: float = 0.0005  # smallest tradable size
     MIN_POSITION_NOTIONAL: float = 10.0  # minimum USD notional per trade
+    FIXED_TRADE_NOTIONAL_USD: float = 0.0  # 0 disables fixed-notional sizing
+    MAX_BUY_NOTIONAL_USD: float = 0.0  # 0 disables hard buy-notional cap
+    MIN_TAKE_PROFIT_PERCENTAGE: float = 0.0
+    MAX_TAKE_PROFIT_PERCENTAGE: float = 1.0
     SIGNAL_COOLDOWN_SECONDS: int = 900
     MIN_SIGNAL_CONFIDENCE: float = 0.55
     CONFLICT_STRENGTH_RATIO: float = 1.35
     MIN_HOLD_SECONDS: int = 900
+    MAX_SIGNALS_PER_CYCLE: int = 3
+
+    # Advanced Entry Filter (adaptive/regime-aware)
+    ADVANCED_ENTRY_FILTER_ENABLED: bool = True
+    ENTRY_FILTER_MIN_HISTORY: int = 8
+    ENTRY_FILTER_VOL_WINDOW: int = 20
+    ENTRY_FILTER_MIN_EXPECTED_EDGE: float = 0.004
+    ENTRY_FILTER_FEE_BPS_PER_SIDE: float = 10.0
+    ENTRY_FILTER_SLIPPAGE_BPS: float = 6.0
+    ENTRY_FILTER_VOL_MULTIPLIER: float = 0.75
+    ENTRY_FILTER_MIN_RR: float = 1.2
+    ENTRY_FILTER_TREND_Z_MIN: float = 0.15
     
     # Notification Settings
     EMAIL_ENABLED: bool = False
@@ -117,6 +141,73 @@ class Settings(BaseSettings):
         if v < 0 or v > 1:
             raise ValueError('MIN_SIGNAL_CONFIDENCE must be between 0 and 1')
         return v
+
+    @field_validator('SOLANA_TRADING_MODE')
+    @classmethod
+    def validate_solana_trading_mode(cls, v):
+        mode = str(v or "").strip().lower()
+        if mode not in {"demo", "live"}:
+            raise ValueError('SOLANA_TRADING_MODE must be "demo" or "live"')
+        return mode
+
+    @field_validator('MAX_TRADES_PER_HOUR')
+    @classmethod
+    def validate_hourly_trades(cls, v):
+        if v <= 0:
+            raise ValueError('MAX_TRADES_PER_HOUR must be positive')
+        return v
+
+    @field_validator('SOLANA_EXECUTOR_TIMEOUT_SECONDS')
+    @classmethod
+    def validate_executor_timeout(cls, v):
+        if int(v) <= 0:
+            raise ValueError('SOLANA_EXECUTOR_TIMEOUT_SECONDS must be positive')
+        return int(v)
+
+    @field_validator('SOLANA_EXECUTOR_MAX_RETRIES')
+    @classmethod
+    def validate_executor_retries(cls, v):
+        if int(v) < 0:
+            raise ValueError('SOLANA_EXECUTOR_MAX_RETRIES cannot be negative')
+        return int(v)
+
+    @field_validator('SOLANA_EXECUTOR_BACKOFF_SECONDS')
+    @classmethod
+    def validate_executor_backoff(cls, v):
+        if float(v) < 0:
+            raise ValueError('SOLANA_EXECUTOR_BACKOFF_SECONDS cannot be negative')
+        return float(v)
+
+    @field_validator('FIXED_TRADE_NOTIONAL_USD')
+    @classmethod
+    def validate_fixed_notional(cls, v):
+        if v < 0:
+            raise ValueError('FIXED_TRADE_NOTIONAL_USD cannot be negative')
+        return v
+
+    @field_validator('MAX_BUY_NOTIONAL_USD')
+    @classmethod
+    def validate_max_buy_notional(cls, v):
+        if v < 0:
+            raise ValueError('MAX_BUY_NOTIONAL_USD cannot be negative')
+        return v
+
+    @field_validator('MIN_TAKE_PROFIT_PERCENTAGE', 'MAX_TAKE_PROFIT_PERCENTAGE')
+    @classmethod
+    def validate_take_profit_bounds(cls, v):
+        if v < 0 or v > 1:
+            raise ValueError('Take profit bounds must be between 0 and 1')
+        return v
+
+    @model_validator(mode='after')
+    def validate_take_profit_range(self):
+        if self.MIN_TAKE_PROFIT_PERCENTAGE > self.MAX_TAKE_PROFIT_PERCENTAGE:
+            raise ValueError('MIN_TAKE_PROFIT_PERCENTAGE cannot exceed MAX_TAKE_PROFIT_PERCENTAGE')
+        if self.TAKE_PROFIT_PERCENTAGE < self.MIN_TAKE_PROFIT_PERCENTAGE:
+            raise ValueError('TAKE_PROFIT_PERCENTAGE is below MIN_TAKE_PROFIT_PERCENTAGE')
+        if self.TAKE_PROFIT_PERCENTAGE > self.MAX_TAKE_PROFIT_PERCENTAGE:
+            raise ValueError('TAKE_PROFIT_PERCENTAGE is above MAX_TAKE_PROFIT_PERCENTAGE')
+        return self
 
     @staticmethod
     def _parse_str_list(value: Any) -> List[str]:

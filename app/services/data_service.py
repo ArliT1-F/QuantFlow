@@ -7,12 +7,8 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Any
 from urllib.parse import quote_plus
-import yfinance as yf
-import pandas as pd
-from alpha_vantage.timeseries import TimeSeries
 
 from app.core.config import settings
-from app.services.okx_client import OkxClient
 from app.services.dexscreener_client import DexScreenerClient
 
 logger = logging.getLogger(__name__)
@@ -22,17 +18,15 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 class DataService:
-    """Service for fetching and managing market data from multiple sources"""
+    """Service for fetching and managing DexScreener market data."""
     
     def __init__(self):
-        self.alpha_vantage = None
         self.cache = {}
         self.cache_expiry = {}
         self.history_cache = {}
         self.history_cache_expiry = {}
         self.is_running_flag = False
         self.data_task = None
-        self.okx_client = None
         self.dexscreener_client = None
         self.dex_pair_cache: Dict[str, Dict[str, Any]] = {}
         self.dex_pair_cache_expiry: Dict[str, datetime] = {}
@@ -51,27 +45,6 @@ class DataService:
         self.market_last_refresh: Optional[datetime] = None
         self.dex_fetch_semaphore = asyncio.Semaphore(6)
         
-        # Initialize Alpha Vantage if API key is available
-        if settings.ALPHA_VANTAGE_ENABLED and settings.ALPHA_VANTAGE_API_KEY:
-            try:
-                self.alpha_vantage = TimeSeries(key=settings.ALPHA_VANTAGE_API_KEY)
-                logger.info("Alpha Vantage initialized successfully")
-            except Exception as e:
-                logger.error(f"Failed to initialize Alpha Vantage: {e}")
-
-        if settings.OKX_ENABLED and settings.OKX_MARKET_DATA_ENABLED:
-            try:
-                self.okx_client = OkxClient(
-                    api_key=settings.OKX_API_KEY,
-                    secret_key=settings.OKX_SECRET_KEY,
-                    passphrase=settings.OKX_PASSPHRASE,
-                    base_url=settings.OKX_BASE_URL,
-                    demo=settings.OKX_DEMO_TRADING
-                )
-                logger.info("OKX client initialized successfully")
-            except Exception as e:
-                logger.error(f"Failed to initialize OKX client: {e}")
-
         if settings.DEXSCREENER_ENABLED:
             try:
                 self.dexscreener_client = DexScreenerClient(
@@ -132,12 +105,68 @@ class DataService:
     
     async def get_latest_data(self, include_history: bool = False) -> Dict[str, Any]:
         """Get latest data for all symbols"""
-        data = {}
-        for symbol in settings.DEFAULT_SYMBOLS:
+        return await self.get_latest_data_for_symbols(settings.DEFAULT_SYMBOLS, include_history=include_history)
+
+    async def get_latest_data_for_symbols(self, symbols: List[str], include_history: bool = False) -> Dict[str, Any]:
+        """Get latest data for a provided symbol universe."""
+        data: Dict[str, Any] = {}
+        seen = set()
+        for raw_symbol in symbols or []:
+            symbol = str(raw_symbol or "").strip().upper()
+            if not symbol or symbol in seen:
+                continue
+            seen.add(symbol)
             symbol_data = await self.get_latest_data_for_symbol(symbol, include_history=include_history)
             if symbol_data:
                 data[symbol] = symbol_data
         return data
+
+    async def get_dynamic_dex_symbols(self) -> List[str]:
+        """Build a compact, tradable symbol universe from DexScreener boosted pairs."""
+        if not (
+            settings.DEXSCREENER_ENABLED
+            and settings.DEXSCREENER_DYNAMIC_UNIVERSE_ENABLED
+            and self.dexscreener_client
+        ):
+            return []
+
+        try:
+            payload = await self.get_dexscreener_boosted_pairs(
+                page=1,
+                page_size=max(int(settings.DEXSCREENER_DYNAMIC_UNIVERSE_SIZE), 1),
+                mode=str(settings.DEXSCREENER_DYNAMIC_UNIVERSE_MODE or "top"),
+                sort_by=str(settings.DEXSCREENER_DYNAMIC_UNIVERSE_SORT or "boosts"),
+                chain=settings.DEXSCREENER_CHAIN,
+                min_liquidity=settings.DEXSCREENER_MIN_LIQUIDITY_USD,
+            )
+            items = payload.get("items", [])
+            if not isinstance(items, list):
+                return []
+
+            symbols: List[str] = []
+            used = set()
+            cache_expiry = utc_now() + timedelta(hours=6)
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                pair_address = str(item.get("pair_address") or "").strip().lower()
+                chain_id = str(item.get("chain") or settings.DEXSCREENER_CHAIN or "").strip().lower()
+                if not pair_address or not chain_id:
+                    continue
+                base_symbol = str(item.get("base_symbol") or item.get("symbol") or "").split("/", 1)[0]
+                alias = self._symbol_alias_from_pair(base_symbol, pair_address, used)
+                used.add(alias)
+                symbols.append(alias)
+                self.dex_pair_cache[alias] = {
+                    "chain_id": chain_id,
+                    "pair_address": pair_address,
+                    "token_address": str(item.get("base_token_address") or "").strip().lower(),
+                }
+                self.dex_pair_cache_expiry[alias] = cache_expiry
+            return symbols
+        except Exception as e:
+            logger.warning(f"Failed to build dynamic Dex universe: {e}")
+            return []
     
     async def get_latest_data_for_symbol(self, symbol: str, include_history: bool = False) -> Optional[Dict[str, Any]]:
         """Get latest data for a specific symbol"""
@@ -148,109 +177,23 @@ class DataService:
             return self.cache.get(symbol)
         
         try:
-            if self.dexscreener_client:
-                dex_data = await self._fetch_dexscreener_data(symbol, include_history=include_history)
-                if dex_data:
-                    if "history" in dex_data:
-                        self._cache_history_data(symbol, dex_data)
-                        cache_copy = dex_data.copy()
-                        cache_copy.pop("history", None)
-                        self._cache_data(symbol, cache_copy)
-                    else:
-                        self._cache_data(symbol, dex_data)
-                    return dex_data
-                # If explicitly enabled and no usable pair found, fall back only if Yahoo is enabled.
-                if not settings.YAHOO_FINANCE_ENABLED and not self.okx_client:
-                    return None
-
-            if self.okx_client:
-                okx_data = await self._fetch_okx_data(symbol, include_history=include_history)
-                if okx_data:
-                    if "history" in okx_data:
-                        self._cache_history_data(symbol, okx_data)
-                        cache_copy = okx_data.copy()
-                        cache_copy.pop("history", None)
-                        self._cache_data(symbol, cache_copy)
-                    else:
-                        self._cache_data(symbol, okx_data)
-                    return okx_data
-                # If explicitly enabled and no usable pair found, fall back only if Yahoo is enabled.
-                if not settings.YAHOO_FINANCE_ENABLED:
-                    return None
-
-            # Fetch from Yahoo Finance (primary source)
-            yahoo_data = None
-            if settings.YAHOO_FINANCE_ENABLED:
-                yahoo_data = await self._fetch_yahoo_data(symbol, include_history=include_history)
-            
-            # Fetch from Alpha Vantage if available (secondary source)
-            alpha_data = None
-            if self.alpha_vantage and "-USD" not in symbol.upper():
-                alpha_data = await self._fetch_alpha_vantage_data(symbol)
-            
-            # Combine and process data
-            combined_data = self._combine_data_sources(yahoo_data, alpha_data)
-            
-            # Cache the data (without history to keep cache light)
-            if combined_data and "history" in combined_data:
-                self._cache_history_data(symbol, combined_data)
-                cache_copy = combined_data.copy()
+            if not self.dexscreener_client:
+                return None
+            dex_data = await self._fetch_dexscreener_data(symbol, include_history=include_history)
+            if not dex_data:
+                return None
+            if "history" in dex_data:
+                self._cache_history_data(symbol, dex_data)
+                cache_copy = dex_data.copy()
                 cache_copy.pop("history", None)
                 self._cache_data(symbol, cache_copy)
             else:
-                self._cache_data(symbol, combined_data)
-            
-            return combined_data
+                self._cache_data(symbol, dex_data)
+            return dex_data
             
         except Exception as e:
             logger.error(f"Error fetching data for {symbol}: {e}")
             return self.cache.get(symbol)  # Return cached data if available
-
-    def _okx_inst_id(self, symbol: str) -> str:
-        if "-" in symbol:
-            base, quote = symbol.split("-", 1)
-            if quote.upper() == "USD":
-                quote = settings.OKX_QUOTE_CCY
-            return f"{base.upper()}-{quote.upper()}"
-        return f"{symbol.upper()}-{settings.OKX_QUOTE_CCY}"
-
-    async def _fetch_okx_data(self, symbol: str, include_history: bool = False) -> Optional[Dict[str, Any]]:
-        """Fetch data from OKX market API"""
-        try:
-            inst_id = self._okx_inst_id(symbol)
-            ticker = self.okx_client.get_ticker(inst_id)
-            if not ticker:
-                return None
-
-            last = float(ticker.get("last", 0))
-            open24h = float(ticker.get("open24h", 0))
-            high24h = float(ticker.get("high24h", 0))
-            low24h = float(ticker.get("low24h", 0))
-            vol24h = float(ticker.get("vol24h", 0))
-            change = last - open24h if open24h else 0.0
-            change_percent = (change / open24h * 100) if open24h else 0.0
-
-            data = {
-                "symbol": symbol,
-                "price": last,
-                "open": open24h,
-                "high": high24h,
-                "low": low24h,
-                "volume": vol24h,
-                "change": change,
-                "change_percent": change_percent,
-                "timestamp": utc_now()
-            }
-
-            if include_history:
-                candles = self.okx_client.get_candles(inst_id, bar="1D", limit=90)
-                if candles:
-                    data["history"] = candles
-
-            return data
-        except Exception as e:
-            logger.error(f"Error fetching OKX data for {symbol}: {e}")
-            return None
 
     async def _fetch_dexscreener_data(self, symbol: str, include_history: bool = False) -> Optional[Dict[str, Any]]:
         """Fetch data from DexScreener."""
@@ -277,6 +220,8 @@ class DataService:
                 open_price = price
             change = price - open_price
             volume = float((pair.get("volume") or {}).get("h24") or 0.0)
+            base_token = pair.get("baseToken") or {}
+            quote_token = pair.get("quoteToken") or {}
 
             data = {
                 "symbol": symbol,
@@ -288,6 +233,10 @@ class DataService:
                 "change": change,
                 "change_percent": change_percent,
                 "market_cap": pair.get("marketCap"),
+                "pair_address": pair_info.get("pair_address"),
+                "chain_id": pair_info.get("chain_id"),
+                "base_token_address": str(base_token.get("address") or pair_info.get("token_address") or "").strip().lower(),
+                "quote_token_address": str(quote_token.get("address") or "").strip().lower(),
                 "timestamp": utc_now()
             }
 
@@ -302,8 +251,25 @@ class DataService:
 
     async def _resolve_dex_pair(self, symbol: str) -> Optional[Dict[str, str]]:
         """Resolve and cache best DexScreener pair for a symbol."""
+        # Guard against canonical symbols (e.g. BTC-USD) being mapped to
+        # unrelated DEX pairs via fuzzy search.
+        if "-" in symbol:
+            return None
+
+        # Guard against unknown compact aliases: they must come from the
+        # dynamic-universe cache to be tradable/resolvable.
+        if symbol not in self.dex_pair_cache:
+            return None
+
         if self._is_dex_pair_cache_valid(symbol):
             return self.dex_pair_cache.get(symbol)
+        # For compact boosted-token aliases we cannot reliably rebuild a search query.
+        # Keep using known pair mapping even when stale.
+        if symbol in self.dex_pair_cache:
+            cached = self.dex_pair_cache.get(symbol)
+            if isinstance(cached, dict) and cached.get("chain_id") and cached.get("pair_address"):
+                self.dex_pair_cache_expiry[symbol] = utc_now() + timedelta(hours=6)
+                return cached
 
         if not self.dexscreener_client:
             return None
@@ -370,6 +336,22 @@ class DataService:
         if not expiry:
             return False
         return utc_now() < expiry
+
+    def _symbol_alias_from_pair(self, base_symbol: str, pair_address: str, used: set) -> str:
+        base = self._sanitize_token_fragment(base_symbol)[:5] or "TKN"
+        addr = self._sanitize_token_fragment(pair_address)
+        suffix = (addr[-4:] if len(addr) >= 4 else addr.rjust(4, "0")) or "0000"
+        root = f"{base}{suffix}"[:10]
+        candidate = root
+        nonce = 0
+        while candidate in used:
+            nonce += 1
+            candidate = f"{root[:9]}{format(nonce % 16, 'X')}"[:10]
+        return candidate
+
+    @staticmethod
+    def _sanitize_token_fragment(value: str) -> str:
+        return "".join(ch for ch in str(value or "").upper() if ch.isalnum())
 
     def _append_dex_history(self, symbol: str, latest: Dict[str, Any]):
         history = self.dex_history.setdefault(symbol, [])
@@ -508,6 +490,7 @@ class DataService:
                 formatted_pairs.append(self._format_dexscreener_pair(pair, boost_entry))
 
             deduped_pairs = self._dedupe_pairs_by_address(formatted_pairs)
+            deduped_pairs = self._apply_dex_token_filters(deduped_pairs)
             deduped_pairs.sort(key=lambda item: self._stable_sort_key(item, sort_by))
 
             total = len(deduped_pairs)
@@ -695,6 +678,51 @@ class DataService:
                 deduped[key] = item
         return list(deduped.values())
 
+    def _apply_dex_token_filters(self, pairs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        min_volume = max(self._to_float(getattr(settings, "DEXSCREENER_MIN_VOLUME_24H_USD", 0.0)), 0.0)
+        min_age_hours = max(self._to_float(getattr(settings, "DEXSCREENER_MIN_TOKEN_AGE_HOURS", 0.0)), 0.0)
+        min_age_seconds = int(min_age_hours * 3600)
+        require_unique_symbol = bool(getattr(settings, "DEXSCREENER_REQUIRE_UNIQUE_BASE_SYMBOL", False))
+        blocked_tokens = self._parse_address_set(getattr(settings, "DEXSCREENER_BLOCKED_TOKEN_ADDRESSES", ""))
+        blocked_pairs = self._parse_address_set(getattr(settings, "DEXSCREENER_BLOCKED_PAIR_ADDRESSES", ""))
+
+        ambiguous_keys = set()
+        if require_unique_symbol:
+            symbol_to_tokens: Dict[tuple, set] = {}
+            for item in pairs:
+                chain_id = str(item.get("chain") or "").strip().lower()
+                base_symbol = str(item.get("base_symbol") or "").strip().upper()
+                base_token_address = self._normalize_address(item.get("base_token_address"))
+                if not chain_id or not base_symbol or not base_token_address:
+                    continue
+                key = (chain_id, base_symbol)
+                symbol_to_tokens.setdefault(key, set()).add(base_token_address)
+            ambiguous_keys = {key for key, token_set in symbol_to_tokens.items() if len(token_set) > 1}
+
+        filtered: List[Dict[str, Any]] = []
+        for item in pairs:
+            chain_id = str(item.get("chain") or "").strip().lower()
+            base_symbol = str(item.get("base_symbol") or "").strip().upper()
+            base_token_address = self._normalize_address(item.get("base_token_address"))
+            pair_address = self._normalize_address(item.get("pair_address"))
+            volume = self._to_float(item.get("volume"))
+            age_seconds = self._to_int(item.get("pair_age_seconds"), default=0)
+
+            if base_token_address and base_token_address in blocked_tokens:
+                continue
+            if pair_address and pair_address in blocked_pairs:
+                continue
+            if volume < min_volume:
+                continue
+            if min_age_seconds > 0:
+                # Unknown age is treated as ineligible for safety.
+                if age_seconds <= 0 or age_seconds < min_age_seconds:
+                    continue
+            if require_unique_symbol and (chain_id, base_symbol) in ambiguous_keys:
+                continue
+            filtered.append(item)
+        return filtered
+
     def get_market_health(self) -> Dict[str, Any]:
         dex_metrics = self.dexscreener_client.get_metrics() if self.dexscreener_client else {}
         return {
@@ -725,6 +753,34 @@ class DataService:
             return float(value)
         except (TypeError, ValueError):
             return default
+
+    @staticmethod
+    def _to_int(value: Any, default: int = 0) -> int:
+        try:
+            if value is None:
+                return default
+            return int(float(value))
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _normalize_address(value: Any) -> str:
+        return str(value or "").strip().lower()
+
+    def _parse_address_set(self, raw: str) -> set:
+        items = self._parse_csv_list(raw)
+        return {self._normalize_address(item) for item in items if self._normalize_address(item)}
+
+    @staticmethod
+    def _parse_csv_list(value: Any) -> List[str]:
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        raw = str(value).strip()
+        if not raw:
+            return []
+        return [item.strip() for item in raw.split(",") if item.strip()]
 
     def _normalize_boost_entries(self, boosts: List[Dict[str, Any]], source: str = "") -> List[Dict[str, Any]]:
         entries: List[Dict[str, Any]] = []
@@ -780,9 +836,15 @@ class DataService:
         volume = self._to_float((pair.get("volume") or {}).get("h24"))
         liquidity = self._to_float((pair.get("liquidity") or {}).get("usd"))
         market_cap = pair.get("marketCap") or pair.get("fdv")
+        pair_age_seconds = self._pair_age_seconds(pair)
+        pair_created_at = self._pair_created_at_iso(pair)
 
         return {
             "symbol": f"{base.get('symbol')}/{quote.get('symbol')}".strip("/"),
+            "base_symbol": str(base.get("symbol") or ""),
+            "quote_symbol": str(quote.get("symbol") or ""),
+            "base_token_address": str(base.get("address") or "").strip().lower(),
+            "quote_token_address": str(quote.get("address") or "").strip().lower(),
             "name": base.get("name") or base.get("symbol"),
             "price": price,
             "change_percent": change_percent,
@@ -793,110 +855,45 @@ class DataService:
             "dex": pair.get("dexId"),
             "pair_address": pair.get("pairAddress"),
             "url": pair.get("url"),
+            "pair_created_at": pair_created_at,
+            "pair_age_seconds": pair_age_seconds,
+            "pair_age_hours": round(pair_age_seconds / 3600.0, 4) if pair_age_seconds > 0 else 0.0,
             "boost_amount": boost_entry.get("boost_amount", 0),
             "boost_count": boost_entry.get("boost_count", 0)
         }
 
+    def _pair_age_seconds(self, pair: Dict[str, Any]) -> int:
+        created_raw = pair.get("pairCreatedAt")
+        if created_raw is None:
+            return 0
+        created_seconds = self._to_float(created_raw, default=0.0)
+        if created_seconds <= 0:
+            return 0
+        if created_seconds > 1_000_000_000_000:
+            created_seconds /= 1000.0
+        try:
+            created_at = datetime.fromtimestamp(created_seconds, tz=timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return 0
+        return max(int((utc_now() - created_at).total_seconds()), 0)
+
+    def _pair_created_at_iso(self, pair: Dict[str, Any]) -> str:
+        created_raw = pair.get("pairCreatedAt")
+        if created_raw is None:
+            return ""
+        created_seconds = self._to_float(created_raw, default=0.0)
+        if created_seconds <= 0:
+            return ""
+        if created_seconds > 1_000_000_000_000:
+            created_seconds /= 1000.0
+        try:
+            return datetime.fromtimestamp(created_seconds, tz=timezone.utc).isoformat()
+        except (OverflowError, OSError, ValueError):
+            return ""
+
     @staticmethod
     def _chunked(items: List[str], size: int) -> List[List[str]]:
         return [items[i:i + size] for i in range(0, len(items), size)]
-    
-    async def _fetch_yahoo_data(self, symbol: str, include_history: bool = False) -> Optional[Dict[str, Any]]:
-        """Fetch data from Yahoo Finance"""
-        try:
-            # Prefer lightweight history download to avoid quoteSummary rate limits
-            hist = yf.download(
-                tickers=symbol,
-                period="90d",
-                interval="1d",
-                progress=False,
-                threads=False
-            )
-            
-            if hist.empty:
-                return None
-            
-            latest = hist.iloc[-1]
-            
-            data = {
-                "symbol": symbol,
-                "price": float(latest["Close"]),
-                "open": float(latest["Open"]),
-                "high": float(latest["High"]),
-                "low": float(latest["Low"]),
-                "volume": int(latest["Volume"]),
-                "change": float(latest["Close"] - latest["Open"]),
-                "change_percent": float((latest["Close"] - latest["Open"]) / latest["Open"] * 100),
-                "timestamp": utc_now()
-            }
-
-            if include_history:
-                history = []
-                for idx, row in hist.iterrows():
-                    history.append({
-                        "timestamp": idx.isoformat(),
-                        "open": float(row["Open"]),
-                        "high": float(row["High"]),
-                        "low": float(row["Low"]),
-                        "close": float(row["Close"]),
-                        "volume": float(row["Volume"])
-                    })
-                data["history"] = history
-            
-            return data
-            
-        except Exception as e:
-            logger.error(f"Error fetching Yahoo data for {symbol}: {e}")
-            return None
-    
-    async def _fetch_alpha_vantage_data(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """Fetch data from Alpha Vantage"""
-        try:
-            # Get intraday data
-            data, _ = self.alpha_vantage.get_intraday(symbol, interval='1min', outputsize='compact')
-            
-            if not data:
-                return None
-            
-            # Convert to DataFrame and get latest
-            df = pd.DataFrame(data).T
-            df.index = pd.to_datetime(df.index)
-            latest = df.iloc[-1]
-            
-            alpha_data = {
-                "symbol": symbol,
-                "price": float(latest["4. close"]),
-                "open": float(latest["1. open"]),
-                "high": float(latest["2. high"]),
-                "low": float(latest["3. low"]),
-                "volume": int(latest["5. volume"]),
-                "timestamp": utc_now()
-            }
-            
-            return alpha_data
-            
-        except Exception as e:
-            logger.error(f"Error fetching Alpha Vantage data for {symbol}: {e}")
-            return None
-    
-    def _combine_data_sources(self, yahoo_data: Optional[Dict], alpha_data: Optional[Dict]) -> Dict[str, Any]:
-        """Combine data from multiple sources"""
-        if not yahoo_data and not alpha_data:
-            return {}
-        
-        # Use Yahoo as primary, Alpha Vantage as fallback
-        primary_data = yahoo_data or alpha_data
-        secondary_data = alpha_data if yahoo_data else None
-        
-        combined = primary_data.copy()
-        
-        # Add any missing fields from secondary source
-        if secondary_data:
-            for key, value in secondary_data.items():
-                if key not in combined or combined[key] is None:
-                    combined[key] = value
-        
-        return combined
     
     def _is_cache_valid(self, symbol: str) -> bool:
         """Check if cached data is still valid"""
@@ -926,96 +923,4 @@ class DataService:
         if not expiry_time:
             return False
         return utc_now() < expiry_time
-    
-    async def get_historical_data(self, symbol: str, period: str = "1y") -> Optional[pd.DataFrame]:
-        """Get historical data for backtesting"""
-        try:
-            if self.dexscreener_client:
-                cached = self.dex_history.get(symbol, [])
-                if cached:
-                    df = pd.DataFrame(cached)
-                    if not df.empty and {"timestamp", "open", "high", "low", "close", "volume"}.issubset(df.columns):
-                        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
-                        df = df.dropna(subset=["timestamp"]).set_index("timestamp").sort_index()
-                        df = df.rename(columns={
-                            "open": "Open",
-                            "high": "High",
-                            "low": "Low",
-                            "close": "Close",
-                            "volume": "Volume"
-                        })
-                        if not df.empty:
-                            return self._add_technical_indicators(df)
-
-            if self.okx_client:
-                inst_id = self._okx_inst_id(symbol)
-                candles = self.okx_client.get_candles(inst_id, bar="1D", limit=365)
-                if not candles:
-                    return None
-                df = pd.DataFrame(candles)
-                df["timestamp"] = pd.to_datetime(df["timestamp"])
-                df = df.set_index("timestamp")
-                df = df.rename(columns={
-                    "open": "Open",
-                    "high": "High",
-                    "low": "Low",
-                    "close": "Close",
-                    "volume": "Volume"
-                })
-                return self._add_technical_indicators(df)
-
-            ticker = yf.Ticker(symbol)
-            hist = ticker.history(period=period)
-            
-            if hist.empty:
-                return None
-            
-            # Add technical indicators
-            hist = self._add_technical_indicators(hist)
-            
-            return hist
-            
-        except Exception as e:
-            logger.error(f"Error fetching historical data for {symbol}: {e}")
-            return None
-    
-    def _add_technical_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Add technical indicators to DataFrame"""
-        try:
-            # Simple Moving Averages
-            df['SMA_20'] = df['Close'].rolling(window=20).mean()
-            df['SMA_50'] = df['Close'].rolling(window=50).mean()
-            df['SMA_200'] = df['Close'].rolling(window=200).mean()
-            
-            # Exponential Moving Averages
-            df['EMA_12'] = df['Close'].ewm(span=12).mean()
-            df['EMA_26'] = df['Close'].ewm(span=26).mean()
-            
-            # MACD
-            df['MACD'] = df['EMA_12'] - df['EMA_26']
-            df['MACD_Signal'] = df['MACD'].ewm(span=9).mean()
-            df['MACD_Histogram'] = df['MACD'] - df['MACD_Signal']
-            
-            # RSI
-            delta = df['Close'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-            rs = gain / loss
-            df['RSI'] = 100 - (100 / (1 + rs))
-            
-            # Bollinger Bands
-            df['BB_Middle'] = df['Close'].rolling(window=20).mean()
-            bb_std = df['Close'].rolling(window=20).std()
-            df['BB_Upper'] = df['BB_Middle'] + (bb_std * 2)
-            df['BB_Lower'] = df['BB_Middle'] - (bb_std * 2)
-            
-            # Volume indicators
-            df['Volume_SMA'] = df['Volume'].rolling(window=20).mean()
-            df['Volume_Ratio'] = df['Volume'] / df['Volume_SMA']
-            
-            return df
-            
-        except Exception as e:
-            logger.error(f"Error adding technical indicators: {e}")
-            return df
     

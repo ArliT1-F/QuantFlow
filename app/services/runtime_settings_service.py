@@ -100,6 +100,13 @@ class RuntimeSettingsService:
         if take_profit <= 0 or take_profit > 100:
             raise ValueError("take_profit_percent must be between 0 and 100")
 
+        min_take_profit_percent = settings.MIN_TAKE_PROFIT_PERCENTAGE * 100.0
+        max_take_profit_percent = settings.MAX_TAKE_PROFIT_PERCENTAGE * 100.0
+        if not (min_take_profit_percent <= take_profit <= max_take_profit_percent):
+            raise ValueError(
+                f"take_profit_percent must be between {min_take_profit_percent:g} and {max_take_profit_percent:g}"
+            )
+
         return {
             "max_position_size_percent": max_position,
             "stop_loss_percent": stop_loss,

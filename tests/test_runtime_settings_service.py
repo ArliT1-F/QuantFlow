@@ -3,7 +3,9 @@ import pytest
 from app.services.runtime_settings_service import RuntimeSettingsService
 
 
-def test_validate_payload_accepts_valid_percentages():
+def test_validate_payload_accepts_valid_percentages(monkeypatch):
+    monkeypatch.setattr("app.services.runtime_settings_service.settings.MIN_TAKE_PROFIT_PERCENTAGE", 0.0)
+    monkeypatch.setattr("app.services.runtime_settings_service.settings.MAX_TAKE_PROFIT_PERCENTAGE", 1.0)
     service = RuntimeSettingsService()
     payload = {
         "max_position_size_percent": 10,
@@ -24,9 +26,24 @@ def test_validate_payload_accepts_valid_percentages():
         {"max_position_size_percent": 10, "stop_loss_percent": 5, "take_profit_percent": 101},
     ],
 )
-def test_validate_payload_rejects_invalid_ranges(payload):
+def test_validate_payload_rejects_invalid_ranges(payload, monkeypatch):
+    monkeypatch.setattr("app.services.runtime_settings_service.settings.MIN_TAKE_PROFIT_PERCENTAGE", 0.0)
+    monkeypatch.setattr("app.services.runtime_settings_service.settings.MAX_TAKE_PROFIT_PERCENTAGE", 1.0)
     service = RuntimeSettingsService()
     with pytest.raises(ValueError):
+        service._validate_payload(payload)
+
+
+def test_validate_payload_rejects_take_profit_outside_bounds(monkeypatch):
+    monkeypatch.setattr("app.services.runtime_settings_service.settings.MIN_TAKE_PROFIT_PERCENTAGE", 0.2)
+    monkeypatch.setattr("app.services.runtime_settings_service.settings.MAX_TAKE_PROFIT_PERCENTAGE", 0.5)
+    service = RuntimeSettingsService()
+    payload = {
+        "max_position_size_percent": 10,
+        "stop_loss_percent": 5,
+        "take_profit_percent": 15,
+    }
+    with pytest.raises(ValueError, match="take_profit_percent must be between 20 and 50"):
         service._validate_payload(payload)
 
 

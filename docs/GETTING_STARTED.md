@@ -4,13 +4,13 @@
 
 This automated coin trading bot is an educational, **paper-trading** system that provides:
 
-- **Real-time Market Data**: Integration with Yahoo Finance (default), Alpha Vantage (optional), and OKX (optional)
+- **Real-time Market Data**: DexScreener
 - **Multiple Trading Strategies**: Momentum, Mean Reversion, and Technical Analysis
 - **Risk Management**: Position sizing, stop-loss, take-profit, and portfolio risk controls
 - **Web Dashboard**: Real-time monitoring and control interface
 - **Portfolio Management**: Position tracking and performance analytics
 - **Notification System**: Email alerts for trades and important events
-- **Backtesting**: Run historical backtests before live paper trading
+- **Execution Modes**: Demo mode or live Solana execution via executor endpoint
 
 ## ⚠️ Important Disclaimer
 
@@ -21,15 +21,7 @@ This automated coin trading bot is an educational, **paper-trading** system that
 - Python 3.8 or higher
 - PostgreSQL database
 - Internet connection for market data
-- (Optional) Alpha Vantage API key for enhanced data (disabled by default)
-
-## OKX (Optional)
-
-If you want live or demo trading through OKX:
-1. Create an OKX account and API key.
-2. Set `OKX_ENABLED=true` and `OKX_TRADING_ENABLED=true` in your `.env`.
-3. For demo trading, set `OKX_DEMO_TRADING=true`.
-4. If your region uses a different OKX base URL, set `OKX_BASE_URL` accordingly.
+- Solana wallet/executor endpoint for live mode
 
 ## Quick Start
 
@@ -55,8 +47,26 @@ Edit the `.env` file with your settings:
 # Database Configuration
 DATABASE_URL=postgresql://username:password@localhost:5432/trading_bot
 
-# API Keys (Optional)
-ALPHA_VANTAGE_API_KEY=your_alpha_vantage_key_here
+# Solana Execution
+SOLANA_TRADING_MODE=demo
+SOLANA_EXECUTOR_URL=
+SOLANA_EXECUTOR_REQUIRE_AUTH=true
+SOLANA_EXECUTOR_AUTH_HEADER=X-Executor-Key
+SOLANA_EXECUTOR_API_KEY=
+SOLANA_EXECUTOR_TIMEOUT_SECONDS=20
+SOLANA_EXECUTOR_MAX_RETRIES=2
+SOLANA_EXECUTOR_BACKOFF_SECONDS=0.4
+SOLANA_WALLET_PUBLIC_KEY=
+SOLANA_QUOTE_MINT=So11111111111111111111111111111111111111112
+SOLANA_SLIPPAGE_BPS=100
+
+# DexScreener token safety filters (optional)
+DEXSCREENER_MIN_LIQUIDITY_USD=250000
+DEXSCREENER_MIN_VOLUME_24H_USD=1000000
+DEXSCREENER_MIN_TOKEN_AGE_HOURS=24
+DEXSCREENER_REQUIRE_UNIQUE_BASE_SYMBOL=true
+DEXSCREENER_BLOCKED_TOKEN_ADDRESSES=
+DEXSCREENER_BLOCKED_PAIR_ADDRESSES=
 
 # Trading Configuration
 DEFAULT_CAPITAL=10000
@@ -214,8 +224,8 @@ EMAIL_PASSWORD=your_app_password
 
 2. **Market Data Not Loading**
    - Check internet connection
-   - Verify Alpha Vantage API key and set `ALPHA_VANTAGE_ENABLED=true` (if using)
-   - Check Yahoo Finance access
+   - Ensure `DEXSCREENER_ENABLED=true`
+   - Verify `DEXSCREENER_CHAIN` and quote symbol
 
 3. **Trading Not Starting**
    - Check all services are running
@@ -232,7 +242,7 @@ EMAIL_PASSWORD=your_app_password
 
 1. **Database Indexing**: Ensure proper indexes on frequently queried columns
 2. **Data Caching**: Market data is cached for 5 minutes to reduce API calls
-3. **Strategy Optimization**: Adjust strategy parameters based on backtesting results
+3. **Strategy Optimization**: Adjust strategy parameters based on live/paper performance logs
 
 ## Development
 

@@ -282,6 +282,53 @@
             margin-bottom: 1rem;
         }
 
+        .execution-visualizer {
+            background: linear-gradient(156deg, #ffffff 0%, #f3f8ff 100%);
+            border: 1px solid #d2deec;
+            border-radius: 16px;
+            padding: 0.95rem;
+            margin-bottom: 0.95rem;
+        }
+
+        .execution-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.62rem;
+            margin-bottom: 0.62rem;
+        }
+
+        .execution-stat {
+            border: 1px solid #d7e3f0;
+            border-radius: 12px;
+            background: #ffffff;
+            padding: 0.62rem 0.72rem;
+        }
+
+        .execution-stat .label {
+            font-size: 0.71rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #5c6d84;
+            font-weight: 700;
+            margin-bottom: 0.12rem;
+        }
+
+        .execution-stat .value {
+            font-size: 1.15rem;
+            font-family: 'IBM Plex Mono', monospace;
+            font-weight: 700;
+            color: var(--ink);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .execution-chart-wrap {
+            height: 180px;
+            border: 1px solid #d7e4f3;
+            border-radius: 12px;
+            background: #fcfeff;
+            padding: 0.5rem 0.55rem 0.35rem;
+        }
+
         .table-responsive {
             border-radius: 16px;
             border: 1px solid var(--line);
@@ -758,6 +805,10 @@
                 grid-template-columns: repeat(2, minmax(0, 1fr));
             }
 
+            .execution-grid {
+                grid-template-columns: 1fr;
+            }
+
             .market-detail-stats {
                 grid-template-columns: repeat(2, minmax(0, 1fr));
             }
@@ -898,6 +949,32 @@
                                         <div class="metric-value" id="active-positions">0</div>
                                     </div>
                                     <i class="fas fa-briefcase fa-2x text-warning"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-12">
+                            <div class="execution-visualizer">
+                                <div class="d-flex justify-content-between align-items-center flex-wrap mb-2">
+                                    <h5 class="mb-0"><i class="fas fa-signal"></i> <span data-i18n="execution_visualizer">Execution Visualizer</span></h5>
+                                </div>
+                                <div class="execution-grid">
+                                    <div class="execution-stat">
+                                        <div class="label" data-i18n="total_trades_count">Total Trades</div>
+                                        <div class="value" id="viz-total-trades">0</div>
+                                    </div>
+                                    <div class="execution-stat">
+                                        <div class="label" data-i18n="open_positions_count">Open Positions</div>
+                                        <div class="value" id="viz-open-positions">0</div>
+                                    </div>
+                                    <div class="execution-stat">
+                                        <div class="label" data-i18n="rejected_signals_count">Rejected Signals</div>
+                                        <div class="value" id="viz-rejected-signals">0</div>
+                                    </div>
+                                </div>
+                                <div class="execution-chart-wrap">
+                                    <canvas id="executionStatsChart"></canvas>
                                 </div>
                             </div>
                         </div>
@@ -1407,7 +1484,7 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         // Global variables
-        let portfolioChart, positionChart;
+        let portfolioChart, positionChart, executionStatsChart;
         let refreshInterval;
         let activeSection = 'dashboard';
         let isRefreshing = false;
@@ -1455,6 +1532,11 @@
             start: -1,
             end: -1
         };
+        const dashboardStats = {
+            totalTrades: 0,
+            openPositions: 0,
+            rejectedSignals: 0
+        };
         let marketSearchDebounceHandle = null;
         const numberFmt = new Intl.NumberFormat('en-US');
 
@@ -1476,6 +1558,10 @@
                 portfolio_value: 'Portfolio Value',
                 total_pnl: 'Total P&L',
                 active_positions: 'Active Positions',
+                execution_visualizer: 'Execution Visualizer',
+                total_trades_count: 'Total Trades',
+                open_positions_count: 'Open Positions',
+                rejected_signals_count: 'Rejected Signals',
                 recent_events: 'Recent Signals & Events',
                 time: 'Time',
                 type: 'Type',
@@ -1582,6 +1668,10 @@
                 portfolio_value: 'Vlera e Portofolit',
                 total_pnl: 'Fitim/Humbje Totale',
                 active_positions: 'Pozicione Aktive',
+                execution_visualizer: 'Vizualizuesi i Ekzekutimit',
+                total_trades_count: 'Tregtime Totale',
+                open_positions_count: 'Pozicione të Hapura',
+                rejected_signals_count: 'Sinjale të Refuzuara',
                 recent_events: 'Sinjale & Ngjarje të Fundit',
                 time: 'Koha',
                 type: 'Lloji',
@@ -1755,8 +1845,19 @@
         function formatUsd(value, maxFraction = 2) {
             const number = Number(value);
             if (!Number.isFinite(number)) return 'N/A';
-            const fraction = Math.abs(number) >= 1 ? Math.min(maxFraction, 2) : 6;
-            return '$' + number.toLocaleString('en-US', { maximumFractionDigits: fraction, minimumFractionDigits: fraction > 2 ? 2 : 2 });
+            const absValue = Math.abs(number);
+            if (absValue === 0) return '$0.00';
+            const safeMax = Math.max(2, Math.min(Number(maxFraction) || 2, 12));
+            let fraction = 2;
+            if (absValue >= 1) {
+                fraction = Math.min(2, safeMax);
+            } else if (absValue >= 0.01) {
+                fraction = Math.min(4, safeMax);
+            } else {
+                fraction = Math.min(safeMax, Math.max(6, Math.ceil(-Math.log10(absValue)) + 3));
+            }
+            const minFraction = absValue >= 1 ? 2 : Math.min(2, fraction);
+            return '$' + number.toLocaleString('en-US', { maximumFractionDigits: fraction, minimumFractionDigits: minFraction });
         }
 
         function formatPct(value) {
@@ -2540,6 +2641,77 @@
                     }
                 }
             });
+
+            const executionCtx = document.getElementById('executionStatsChart');
+            if (executionCtx) {
+                executionStatsChart = new Chart(executionCtx.getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: [
+                            t('total_trades_count', 'Total Trades'),
+                            t('open_positions_count', 'Open Positions'),
+                            t('rejected_signals_count', 'Rejected Signals')
+                        ],
+                        datasets: [{
+                            data: [0, 0, 0],
+                            backgroundColor: ['#0f766e', '#0284c7', '#d97706'],
+                            borderRadius: 8,
+                            borderSkipped: false
+                        }]
+                    },
+                    options: {
+                        indexAxis: 'y',
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        return `${context.formattedValue}`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                beginAtZero: true,
+                                ticks: { precision: 0, color: '#556b86' },
+                                grid: { color: 'rgba(38, 72, 106, 0.09)' }
+                            },
+                            y: {
+                                ticks: { color: '#314a67' },
+                                grid: { display: false }
+                            }
+                        }
+                    }
+                });
+            }
+            updateExecutionVisualizer();
+        }
+
+        function updateExecutionVisualizer() {
+            const totalTrades = Math.max(Number(dashboardStats.totalTrades || 0), 0);
+            const openPositions = Math.max(Number(dashboardStats.openPositions || 0), 0);
+            const rejectedSignals = Math.max(Number(dashboardStats.rejectedSignals || 0), 0);
+
+            const totalTradesEl = document.getElementById('viz-total-trades');
+            const openPositionsEl = document.getElementById('viz-open-positions');
+            const rejectedSignalsEl = document.getElementById('viz-rejected-signals');
+
+            if (totalTradesEl) totalTradesEl.textContent = numberFmt.format(totalTrades);
+            if (openPositionsEl) openPositionsEl.textContent = numberFmt.format(openPositions);
+            if (rejectedSignalsEl) rejectedSignalsEl.textContent = numberFmt.format(rejectedSignals);
+
+            if (executionStatsChart) {
+                executionStatsChart.data.labels = [
+                    t('total_trades_count', 'Total Trades'),
+                    t('open_positions_count', 'Open Positions'),
+                    t('rejected_signals_count', 'Rejected Signals')
+                ];
+                executionStatsChart.data.datasets[0].data = [totalTrades, openPositions, rejectedSignals];
+                executionStatsChart.update();
+            }
         }
 
         function initializeLanguage() {
@@ -2570,6 +2742,7 @@
                 );
             }
             updateMarketFreshness(window.__marketMeta || null);
+            updateExecutionVisualizer();
         }
 
         function updateDynamicStatusLabels() {
@@ -2779,6 +2952,13 @@
                 const response = await apiFetch('/api/v1/trading/events');
                 const data = await response.json();
                 const events = data.events || [];
+                const rejectedFromPayload = Number(data.rejected_total);
+                dashboardStats.rejectedSignals = Number.isFinite(rejectedFromPayload)
+                    ? Math.max(rejectedFromPayload, 0)
+                    : events.reduce((total, ev) => {
+                        return total + (String(ev.type || '').toLowerCase() === 'rejected' ? 1 : 0);
+                    }, 0);
+                updateExecutionVisualizer();
                 const tbody = document.getElementById('events-table');
                 const count = document.getElementById('events-count');
                 if (!tbody || !count) return;
@@ -2824,6 +3004,9 @@
                 const data = await response.json();
                 
                 const metrics = data.portfolio_metrics;
+                dashboardStats.totalTrades = Number(metrics.num_trades || 0);
+                dashboardStats.openPositions = Number(metrics.num_positions || 0);
+                updateExecutionVisualizer();
                 
                 document.getElementById('portfolio-value').textContent = 
                     '$' + metrics.total_value.toLocaleString('en-US', {minimumFractionDigits: 2});
@@ -2940,7 +3123,15 @@
                     row.appendChild(qtyCell);
 
                     const priceCell = document.createElement('td');
-                    priceCell.textContent = `$${Number(trade.price || 0).toFixed(2)}`;
+                    const unitPrice = Number(trade.price || 0);
+                    const notional = Number(trade.quantity || 0) * unitPrice;
+                    const pricePrimary = document.createElement('div');
+                    pricePrimary.textContent = formatUsd(unitPrice, 12);
+                    const priceSecondary = document.createElement('small');
+                    priceSecondary.className = 'text-muted';
+                    priceSecondary.textContent = `Notional: ${formatUsd(notional, 8)}`;
+                    priceCell.appendChild(pricePrimary);
+                    priceCell.appendChild(priceSecondary);
                     row.appendChild(priceCell);
 
                     const strategyCell = document.createElement('td');
@@ -3387,65 +3578,11 @@
 
         // Run backtest
         async function runBacktest() {
-            try {
-                const symbols = document.getElementById('backtest-symbols').value
-                    .split(',')
-                    .map(s => s.trim())
-                    .filter(Boolean);
-                const days = parseInt(document.getElementById('backtest-days').value, 10);
-                const initialCapital = parseFloat(document.getElementById('backtest-capital').value);
-                const strategies = [];
-                if (document.getElementById('bt-strategy-momentum').checked) strategies.push('momentum');
-                if (document.getElementById('bt-strategy-mean').checked) strategies.push('mean_reversion');
-                if (document.getElementById('bt-strategy-tech').checked) strategies.push('technical_analysis');
-
-                const response = await apiFetch('/api/v1/backtest/run', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        symbols,
-                        days,
-                        strategies,
-                        initial_capital: initialCapital
-                    })
-                });
-                const data = await response.json();
-
-                const resultsDiv = document.getElementById('backtest-results');
-                if (!data.backtest || !data.backtest.summary) {
-                    resultsDiv.textContent = 'No results available.';
-                    return;
-                }
-
-                const summary = data.backtest.summary.strategies || {};
-                const rows = Object.entries(summary).map(([name, stats]) => `
-                    <tr>
-                        <td>${name}</td>
-                        <td>${stats.avg_return_percent.toFixed(2)}%</td>
-                        <td>${stats.avg_max_drawdown_percent.toFixed(2)}%</td>
-                        <td>${stats.symbols_tested}</td>
-                    </tr>
-                `).join('');
-
-                resultsDiv.innerHTML = `
-                    <div class="table-responsive">
-                        <table class="table table-sm">
-                            <thead>
-                                <tr>
-                                    <th>Strategy</th>
-                                    <th>Avg Return</th>
-                                    <th>Avg Drawdown</th>
-                                    <th>Symbols</th>
-                                </tr>
-                            </thead>
-                            <tbody>${rows}</tbody>
-                        </table>
-                    </div>
-                `;
-            } catch (error) {
-                console.error('Error running backtest:', error);
-                showAlert('Error running backtest: ' + error.message, 'danger');
+            const resultsDiv = document.getElementById('backtest-results');
+            if (resultsDiv) {
+                resultsDiv.textContent = 'Backtesting is disabled in this Solana-only build.';
             }
+            showAlert('Backtesting has been removed in this build.', 'warning');
         }
 
         // Load portfolio data
@@ -3506,12 +3643,12 @@
                     <tr>
                         <td><strong>${position.symbol}</strong></td>
                         <td>${position.quantity}</td>
-                        <td>$${position.average_price.toFixed(2)}</td>
-                        <td>$${position.current_price.toFixed(2)}</td>
-                        <td class="${position.unrealized_pnl >= 0 ? 'positive' : 'negative'}">$${position.unrealized_pnl.toFixed(2)}</td>
+                        <td>${formatUsd(position.average_price, 12)}</td>
+                        <td>${formatUsd(position.current_price, 12)}</td>
+                        <td class="${position.unrealized_pnl >= 0 ? 'positive' : 'negative'}">${formatUsd(position.unrealized_pnl, 8)}</td>
                         <td class="${position.pnl_percentage >= 0 ? 'positive' : 'negative'}">${position.pnl_percentage.toFixed(2)}%</td>
-                        <td>${position.stop_loss ? '$' + position.stop_loss.toFixed(2) : 'N/A'}</td>
-                        <td>${position.take_profit ? '$' + position.take_profit.toFixed(2) : 'N/A'}</td>
+                        <td>${position.stop_loss ? formatUsd(position.stop_loss, 12) : 'N/A'}</td>
+                        <td>${position.take_profit ? formatUsd(position.take_profit, 12) : 'N/A'}</td>
                     </tr>
                 `).join('');
                 
@@ -3566,11 +3703,19 @@
                     row.appendChild(qtyCell);
 
                     const priceCell = document.createElement('td');
-                    priceCell.textContent = `$${Number(trade.price || 0).toFixed(2)}`;
+                    const unitPrice = Number(trade.price || 0);
+                    const notional = Number(trade.quantity || 0) * unitPrice;
+                    const pricePrimary = document.createElement('div');
+                    pricePrimary.textContent = formatUsd(unitPrice, 12);
+                    const priceSecondary = document.createElement('small');
+                    priceSecondary.className = 'text-muted';
+                    priceSecondary.textContent = `Notional: ${formatUsd(notional, 8)}`;
+                    priceCell.appendChild(pricePrimary);
+                    priceCell.appendChild(priceSecondary);
                     row.appendChild(priceCell);
 
                     const feeCell = document.createElement('td');
-                    feeCell.textContent = `$${Number(trade.fees || 0).toFixed(2)}`;
+                    feeCell.textContent = formatUsd(Number(trade.fees || 0), 8);
                     row.appendChild(feeCell);
 
                     const strategyCell = document.createElement('td');

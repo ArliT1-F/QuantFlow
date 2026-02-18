@@ -2,6 +2,7 @@
 Notification service for sending alerts and trade notifications
 """
 import logging
+import math
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -65,9 +66,15 @@ class NotificationService:
         try:
             symbol = trade_data.get("symbol", "")
             side = trade_data.get("side", "")
-            quantity = trade_data.get("quantity", 0)
-            price = trade_data.get("price", 0)
+            quantity = float(trade_data.get("quantity", 0) or 0.0)
+            price = float(trade_data.get("price", 0) or 0.0)
             strategy = trade_data.get("strategy", "")
+            trade_value = quantity * price
+            trade_timestamp = trade_data.get("timestamp")
+            if isinstance(trade_timestamp, datetime):
+                timestamp_text = trade_timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')
+            else:
+                timestamp_text = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
             
             title = f"Trade Executed: {symbol} {side}"
             message = f"""
@@ -75,9 +82,10 @@ Trade Details:
 - Symbol: {symbol}
 - Action: {side}
 - Quantity: {quantity}
-- Price: ${price:.2f}
+- Price: {self._format_usd(price, max_decimals=12)}
+- Trade Value (Notional): {self._format_usd(trade_value, max_decimals=8)}
 - Strategy: {strategy}
-- Timestamp: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}
+- Timestamp: {timestamp_text}
 - Status: {trade_data.get('status', 'FILLED')}
 """
             
@@ -86,6 +94,26 @@ Trade Details:
         except Exception as e:
             logger.error(f"Error sending trade notification: {e}")
             return False
+
+    def _format_usd(self, value: Any, max_decimals: int = 2) -> str:
+        """Format USD values with adaptive precision for micro-priced assets."""
+        try:
+            number = float(value)
+            if not math.isfinite(number):
+                return "N/A"
+            abs_value = abs(number)
+            if abs_value == 0:
+                return "$0.00"
+            safe_max = max(2, min(int(max_decimals), 12))
+            if abs_value >= 1:
+                decimals = min(2, safe_max)
+            elif abs_value >= 0.01:
+                decimals = min(4, safe_max)
+            else:
+                decimals = min(safe_max, max(6, int(math.ceil(-math.log10(abs_value)) + 3)))
+            return f"${number:,.{decimals}f}"
+        except (TypeError, ValueError, OverflowError):
+            return "N/A"
     
     async def send_performance_report(self, metrics: Dict[str, Any]) -> bool:
         """

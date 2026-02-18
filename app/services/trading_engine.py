@@ -3,6 +3,7 @@ Core trading engine that orchestrates all trading activities
 """
 import asyncio
 import logging
+import math
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
@@ -14,7 +15,6 @@ from app.services.data_service import DataService
 from app.services.notification_service import NotificationService
 from app.services.risk_manager import RiskManager
 from app.services.portfolio_manager import PortfolioManager
-from app.services.backtest_service import BacktestService
 from app.strategies.base_strategy import BaseStrategy
 from app.strategies.momentum_strategy import MomentumStrategy
 from app.strategies.mean_reversion_strategy import MeanReversionStrategy
@@ -73,6 +73,8 @@ class TradingEngine:
         # Recent events
         self.recent_events = deque(maxlen=50)
         self.last_trade_at: Dict[str, datetime] = {}
+        self.trade_timestamps = deque()
+        self.rejected_signals_total = 0
         
         logger.info("Trading engine initialized")
     
@@ -167,8 +169,9 @@ class TradingEngine:
         
         while self.is_running_flag:
             try:
+                symbols = await self._build_trading_symbols()
                 # Get current market data
-                market_data = await self.data_service.get_latest_data(include_history=True)
+                market_data = await self.data_service.get_latest_data_for_symbols(symbols, include_history=True)
                 
                 if not market_data:
                     logger.warning("No market data available, skipping iteration")
@@ -204,6 +207,31 @@ class TradingEngine:
                 await asyncio.sleep(30)  # Wait before retrying
         
         logger.info("Trading loop stopped")
+
+    async def _build_trading_symbols(self) -> List[str]:
+        """Build symbol universe for the next loop iteration."""
+        symbols: List[str] = []
+        dynamic_symbols: List[str] = []
+        try:
+            if settings.DEXSCREENER_DYNAMIC_UNIVERSE_ENABLED and settings.DEXSCREENER_ENABLED:
+                dynamic_symbols = await self.data_service.get_dynamic_dex_symbols()
+        except Exception as e:
+            logger.warning(f"Unable to load dynamic Dex symbols: {e}")
+        if dynamic_symbols:
+            symbols.extend(dynamic_symbols)
+        else:
+            symbols.extend(settings.DEFAULT_SYMBOLS)
+        for symbol in self.portfolio_manager.positions.keys():
+            symbols.append(symbol)
+        deduped: List[str] = []
+        seen = set()
+        for raw_symbol in symbols:
+            symbol = str(raw_symbol or "").strip().upper()
+            if not symbol or symbol in seen:
+                continue
+            seen.add(symbol)
+            deduped.append(symbol)
+        return deduped
     
     async def _generate_signals(self, market_data: Dict) -> List[TradingSignal]:
         """Generate trading signals from all strategies"""
@@ -224,6 +252,9 @@ class TradingEngine:
                     if signal and signal.action != "HOLD":
                         signal.metadata = signal.metadata or {}
                         signal.metadata["closes_by_symbol"] = closes_by_symbol
+                        signal.metadata["base_token_address"] = data.get("base_token_address")
+                        signal.metadata["quote_token_address"] = data.get("quote_token_address")
+                        signal.metadata["pair_address"] = data.get("pair_address")
                         signal.strategy = strategy_name
                         signals.append(signal)
                 except Exception as e:
@@ -233,49 +264,25 @@ class TradingEngine:
 
     async def _select_active_strategies(self):
         """
-        Select strategies that are currently profitable on a quick rolling backtest.
-        Falls back to the best available strategy if none are positive.
+        Keep all configured strategies active in simplified mode.
         """
-        try:
-            if not self.strategies:
-                self.active_strategy_names = set()
-                return
-
-            evaluator = BacktestService(self.data_service)
-            candidate_names = list(self.strategies.keys())
-            symbols = settings.DEFAULT_SYMBOLS[:4]
-            result = await evaluator.run_backtest(
-                symbols=symbols,
-                days=120,
-                strategies=candidate_names,
-                initial_capital=max(self.portfolio_manager.total_value, settings.DEFAULT_CAPITAL)
-            )
-            summary = (result.get("summary") or {}).get("strategies", {})
-            scored = []
-            for name in candidate_names:
-                stats = summary.get(name, {})
-                avg_return = float(stats.get("avg_return_percent", -9999.0))
-                avg_dd = float(stats.get("avg_max_drawdown_percent", 100.0))
-                scored.append((name, avg_return, avg_dd))
-
-            keep = [name for name, avg_return, avg_dd in scored if avg_return > 0 and avg_dd <= 20.0]
-            if not keep:
-                keep = [max(scored, key=lambda item: item[1])[0]]
-            self.active_strategy_names = set(keep)
-            logger.info(f"Active strategies selected: {sorted(self.active_strategy_names)}")
-        except Exception as e:
-            logger.warning(f"Strategy selection failed, using all strategies: {e}")
-            self.active_strategy_names = set(self.strategies.keys())
+        self.active_strategy_names = set(self.strategies.keys())
     
     async def _process_signals(self, signals: List[TradingSignal]):
         """Process trading signals and execute trades"""
         consolidated_signals = self._consolidate_signals(signals)
         for signal in consolidated_signals:
             try:
+                if not self._passes_hourly_trade_limit(signal):
+                    self.rejected_signals_total += 1
+                    self._add_event("rejected", signal.symbol, signal.strategy, "hourly trade limit reached")
+                    continue
+
                 # Risk management check
                 is_valid, reason = await self.risk_manager.validate_signal(signal)
                 if not is_valid:
                     logger.info(f"Signal rejected by risk manager: {signal.symbol} {signal.action} ({reason})")
+                    self.rejected_signals_total += 1
                     self._add_event("rejected", signal.symbol, signal.strategy, reason)
                     continue
                 
@@ -292,6 +299,9 @@ class TradingEngine:
                     if signal.strategy in self.strategies:
                         self.strategies[signal.strategy].update_performance(trade_result)
                     self._add_event("trade", signal.symbol, signal.strategy, "executed", trade_result)
+                else:
+                    self.rejected_signals_total += 1
+                    self._add_event("rejected", signal.symbol, signal.strategy, "execution rejected")
                 
             except Exception as e:
                 logger.error(f"Error processing signal {signal.symbol}: {e}")
@@ -350,8 +360,8 @@ class TradingEngine:
                 continue
             consolidated.append(selected)
 
-        consolidated.sort(key=lambda s: s.confidence, reverse=True)
-        return consolidated
+        consolidated.sort(key=self._signal_priority, reverse=True)
+        return consolidated[:max(int(settings.MAX_SIGNALS_PER_CYCLE), 1)]
 
     def _passes_cooldown(self, symbol: str, now: datetime, strategy: str) -> bool:
         if strategy == "risk_exit":
@@ -379,6 +389,17 @@ class TradingEngine:
                 return False
         return True
 
+    def _passes_hourly_trade_limit(self, signal: TradingSignal) -> bool:
+        # Risk exits should bypass throughput limits to preserve hard protection.
+        if signal.strategy == "risk_exit":
+            return True
+        max_per_hour = max(int(settings.MAX_TRADES_PER_HOUR), 1)
+        now = datetime.utcnow()
+        cutoff = now - timedelta(hours=1)
+        while self.trade_timestamps and self.trade_timestamps[0] < cutoff:
+            self.trade_timestamps.popleft()
+        return len(self.trade_timestamps) < max_per_hour
+
     def _strategy_weight(self, strategy_name: str) -> float:
         strategy = self.strategies.get(strategy_name)
         if strategy is None:
@@ -392,6 +413,60 @@ class TradingEngine:
         base = 0.7 + (win_rate * 0.6)
         pnl_adj = 0.15 if total_pnl > 0 else -0.15
         return min(max(base + pnl_adj, 0.5), 1.5)
+
+    def _signal_priority(self, signal: TradingSignal) -> float:
+        expected_reward = self._expected_reward_ratio(signal)
+        risk_ratio = self._risk_ratio(signal)
+        rr_ratio = (expected_reward / risk_ratio) if risk_ratio > 0 else 0.0
+        bounded_rr = min(max(rr_ratio, 0.5), 3.0)
+        return signal.confidence * self._strategy_weight(signal.strategy) * (1.0 + expected_reward) * bounded_rr
+
+    def _expected_reward_ratio(self, signal: TradingSignal) -> float:
+        if signal.price <= 0 or signal.take_profit is None:
+            return 0.0
+        return abs(signal.take_profit - signal.price) / signal.price
+
+    def _risk_ratio(self, signal: TradingSignal) -> float:
+        if signal.price <= 0 or signal.stop_loss is None:
+            return 0.0
+        return abs(signal.price - signal.stop_loss) / signal.price
+
+    def _extract_closes(self, signal: TradingSignal) -> List[float]:
+        metadata = signal.metadata or {}
+        closes_by_symbol = metadata.get("closes_by_symbol") or {}
+        closes = closes_by_symbol.get(signal.symbol) or []
+        normalized: List[float] = []
+        for value in closes:
+            try:
+                close = float(value)
+            except (TypeError, ValueError):
+                continue
+            if close > 0:
+                normalized.append(close)
+        return normalized
+
+    def _return_stats(self, closes: List[float]) -> Optional[Dict[str, float]]:
+        if len(closes) < 3:
+            return None
+        window = max(2, min(int(settings.ENTRY_FILTER_VOL_WINDOW), len(closes) - 1))
+        sample = closes[-(window + 1):]
+        returns: List[float] = []
+        for idx in range(1, len(sample)):
+            prev = sample[idx - 1]
+            curr = sample[idx]
+            if prev <= 0:
+                continue
+            returns.append((curr - prev) / prev)
+        if len(returns) < 2:
+            return None
+        mean_return = sum(returns) / len(returns)
+        variance = sum((value - mean_return) ** 2 for value in returns) / (len(returns) - 1)
+        std_return = math.sqrt(max(variance, 0.0))
+        return {
+            "mean": mean_return,
+            "std": std_return,
+            "count": float(len(returns))
+        }
     
     async def _execute_trade(self, signal: TradingSignal) -> Optional[Dict]:
         """Execute a trade based on signal"""
@@ -402,6 +477,9 @@ class TradingEngine:
 
             # Calculate position size
             position_size = signal.quantity if signal.quantity is not None else await self.risk_manager.calculate_position_size(signal)
+            if signal.action == "BUY" and signal.price > 0 and settings.MAX_BUY_NOTIONAL_USD > 0:
+                max_units = settings.MAX_BUY_NOTIONAL_USD / signal.price
+                position_size = min(position_size, max_units)
             
             if position_size <= 0:
                 logger.info(f"Position size too small for {signal.symbol}")
@@ -416,12 +494,16 @@ class TradingEngine:
                 "strategy": signal.strategy,
                 "stop_loss": signal.stop_loss,
                 "take_profit": signal.take_profit,
+                "base_token_address": (signal.metadata or {}).get("base_token_address", ""),
+                "quote_token_address": (signal.metadata or {}).get("quote_token_address", ""),
+                "pair_address": (signal.metadata or {}).get("pair_address", ""),
                 "timestamp": datetime.utcnow()
             }
             
             # Execute through portfolio manager
             trade_result = await self.portfolio_manager.execute_trade(trade_data)
-            
+            if trade_result:
+                self.trade_timestamps.append(datetime.utcnow())
             return trade_result
             
         except Exception as e:
@@ -438,19 +520,46 @@ class TradingEngine:
         if signal.price <= 0:
             return False
 
-        # Approximate 0.1% per side fee + slippage buffer.
-        min_reward = 0.004
-        if signal.take_profit is not None:
-            expected_reward = abs(signal.take_profit - signal.price) / signal.price
-            if expected_reward < min_reward:
+        expected_reward = self._expected_reward_ratio(signal)
+        risk_ratio = self._risk_ratio(signal)
+        if expected_reward <= 0 or risk_ratio <= 0:
+            return False
+
+        if not settings.ADVANCED_ENTRY_FILTER_ENABLED:
+            if expected_reward < settings.ENTRY_FILTER_MIN_EXPECTED_EDGE:
                 return False
-        if signal.stop_loss is not None and signal.take_profit is not None:
-            risk = abs(signal.price - signal.stop_loss) / signal.price
-            reward = abs(signal.take_profit - signal.price) / signal.price
-            if risk <= 0:
+            if (expected_reward / risk_ratio) < settings.ENTRY_FILTER_MIN_RR:
                 return False
-            if (reward / risk) < 1.2:
+            return True
+
+        fee_and_slippage = (
+            (settings.ENTRY_FILTER_FEE_BPS_PER_SIDE * 2.0) + settings.ENTRY_FILTER_SLIPPAGE_BPS
+        ) / 10000.0
+        stats = self._return_stats(self._extract_closes(signal))
+        volatility = stats["std"] if stats else 0.0
+
+        min_reward = max(
+            settings.ENTRY_FILTER_MIN_EXPECTED_EDGE,
+            fee_and_slippage + (volatility * settings.ENTRY_FILTER_VOL_MULTIPLIER)
+        )
+        if expected_reward < min_reward:
+            return False
+
+        rr_ratio = expected_reward / risk_ratio
+        rr_floor = max(settings.ENTRY_FILTER_MIN_RR, 1.0 + min(1.0, volatility * 8.0))
+        configured_rr = settings.TAKE_PROFIT_PERCENTAGE / max(settings.STOP_LOSS_PERCENTAGE, 1e-9)
+        if configured_rr < rr_floor:
+            rr_floor = max(configured_rr * 0.9, 0.05)
+        if rr_ratio < rr_floor:
+            return False
+
+        if stats and stats["count"] >= float(settings.ENTRY_FILTER_MIN_HISTORY):
+            trend_z = (stats["mean"] / max(stats["std"], 1e-9)) * math.sqrt(stats["count"])
+            if signal.action == "BUY" and trend_z < settings.ENTRY_FILTER_TREND_Z_MIN:
                 return False
+            if signal.action == "SELL" and trend_z > -settings.ENTRY_FILTER_TREND_Z_MIN:
+                return False
+
         return True
     
     async def _process_exit_conditions(self, market_data: Dict):
